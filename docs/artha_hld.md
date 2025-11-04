@@ -603,37 +603,126 @@ Keep language simple for 15-year-olds.
 """
 ```
 
-**Ollama Integration:**
+**Ollama Integration via DSPy:**
 
 ```python
-import httpx
+import dspy
+from typing import Optional
 
-class OllamaClient:
-    BASE_URL = "http://localhost:11434"
-    
-    async def generate(
+# Configure DSPy with Ollama (using DSPy 3.0.0+ standard approach)
+lm = dspy.LM(
+    'ollama_chat/qwen3:8b',
+    api_base='http://localhost:11434',
+    api_key=''
+)
+dspy.configure(lm=lm)
+
+# Define DSPy Signatures for different coach interactions
+class TradeFeedbackSignature(dspy.Signature):
+    """Generate educational feedback for a trade execution."""
+    side: str = dspy.InputField(desc="BUY or SELL")
+    quantity: int = dspy.InputField(desc="Number of shares")
+    symbol: str = dspy.InputField(desc="Stock symbol")
+    price: float = dspy.InputField(desc="Execution price")
+    portfolio_value: float = dspy.InputField(desc="Current portfolio value")
+    cash: float = dspy.InputField(desc="Cash remaining")
+    position_count: int = dspy.InputField(desc="Total positions")
+
+    feedback: str = dspy.OutputField(desc="3 concise educational bullets (max 80 chars each)")
+
+class PortfolioReviewSignature(dspy.Signature):
+    """Analyze portfolio and provide risk assessment."""
+    portfolio_json: str = dspy.InputField(desc="JSON representation of portfolio positions")
+    herfindahl: float = dspy.InputField(desc="Concentration index")
+    max_position: float = dspy.InputField(desc="Largest position percentage")
+    position_count: int = dspy.InputField(desc="Number of positions")
+
+    risk_score: int = dspy.OutputField(desc="Risk assessment 0-10 scale")
+    insights: str = dspy.OutputField(desc="4-5 actionable insights for student")
+
+class QuestionAnswerSignature(dspy.Signature):
+    """Answer student's investing questions in educational context."""
+    question: str = dspy.InputField(desc="Student's question")
+    game_context: str = dspy.InputField(desc="Current game state and portfolio")
+
+    answer: str = dspy.OutputField(desc="Educational answer without specific advice")
+    related_lessons: list[str] = dspy.OutputField(desc="Related lesson IDs to recommend")
+
+# CoachManager using DSPy modules
+class CoachManager:
+    def __init__(self):
+        # Initialize DSPy predictors with ChainOfThought reasoning
+        self.trade_feedback = dspy.ChainOfThought(TradeFeedbackSignature)
+        self.portfolio_review = dspy.ChainOfThought(PortfolioReviewSignature)
+        self.qa_module = dspy.ChainOfThought(QuestionAnswerSignature)
+
+    def get_trade_feedback(
         self,
-        prompt: str,
-        model: str = "qwen3:8b",
-        temperature: float = 0.7,
-        max_tokens: int = 300
+        game_id: int,
+        trade: 'Trade',
+        portfolio: 'Portfolio'
     ) -> str:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.BASE_URL}/api/generate",
-                json={
-                    "model": model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": temperature,
-                        "num_predict": max_tokens
-                    }
-                },
-                timeout=30.0
+        """Get educational feedback on a trade using DSPy."""
+        try:
+            result = self.trade_feedback(
+                side=trade.side,
+                quantity=trade.quantity,
+                symbol=trade.symbol,
+                price=trade.price,
+                portfolio_value=portfolio.total_value,
+                cash=portfolio.cash,
+                position_count=len(portfolio.positions)
             )
-            result = response.json()
-            return result['response']
+            return result.feedback
+        except Exception as e:
+            # Graceful fallback if Ollama unavailable
+            return "Trade executed successfully. Review your portfolio for details."
+
+    def get_portfolio_advice(
+        self,
+        game_id: int,
+        portfolio_data: dict
+    ) -> dict:
+        """Get portfolio analysis using DSPy."""
+        try:
+            import json
+            result = self.portfolio_review(
+                portfolio_json=json.dumps(portfolio_data['positions']),
+                herfindahl=portfolio_data['metrics']['herfindahl'],
+                max_position=portfolio_data['metrics']['max_position_pct'],
+                position_count=len(portfolio_data['positions'])
+            )
+            return {
+                'risk_score': result.risk_score,
+                'insights': result.insights
+            }
+        except Exception as e:
+            return {
+                'risk_score': 5,
+                'insights': "Portfolio analysis unavailable. Continue learning!"
+            }
+
+    def answer_question(
+        self,
+        user_id: int,
+        question: str,
+        game_context: str
+    ) -> dict:
+        """Answer student questions using DSPy."""
+        try:
+            result = self.qa_module(
+                question=question,
+                game_context=game_context
+            )
+            return {
+                'answer': result.answer,
+                'related_lessons': result.related_lessons
+            }
+        except Exception as e:
+            return {
+                'answer': "I'm here to help you learn! Try rephrasing your question.",
+                'related_lessons': []
+            }
 ```
 
 ### 4.2 Frontend Components (Textual TUI)
@@ -1952,49 +2041,66 @@ Server -> Client:
         └───────────────────────┴─────────────────────────┴─────────┘
 ```
 
-### 7.4 Ollama Coach Integration
+### 7.4 Ollama Coach Integration (via DSPy)
 
 ```bash
-┌──────────┐         ┌──────────┐         ┌──────────┐
-│  FastAPI │         │  Ollama  │         │  Model   │
-│  Server  │         │  HTTP    │         │ (Llama)  │
-└────┬─────┘         └────┬─────┘         └────┬─────┘
+┌──────────┐         ┌──────────┐          ┌──────────┐
+│  FastAPI │         │   DSPy   │          │  Ollama  │
+│  Server  │         │ Framework│          │  +Model  │
+└────┬─────┘         └────┬─────┘          └────┬─────┘
      │                    │                     │
      │ 1. User makes trade│                     │
      │                    │                     │
-     │ 2. Build prompt    │                     │
-     │    with context    │                     │
+     │ 2. Call DSPy       │                     │
+     │    predictor with  │                     │
+     │    structured args │                     │
      │                    │                     │
-     ├──── POST /api/generate ───────────────>  │
-     │    {model: qwen3:8b,                     │
-     │     prompt: "...",                       │
-     │     temperature: 0.7}                    │
+     ├─── coach.trade_feedback( ────────────>   │
+     │      side="BUY",                         │
+     │      quantity=100,                       │
+     │      symbol="ZYTEX",                     │
+     │      price=345.0,                        │
+     │      ...)                                │
      │                    │                     │
-     │                    ├──────────────────>  │ 3. Generate
-     │                    │                     │    response
+     │                    │ 3. DSPy builds      │
+     │                    │    optimized prompt │
+     │                    │    from Signature   │
+     │                    │                     │
+     │                    ├──────────────────>  │ 4. LM.generate()
+     │                    │  (via LiteLLM)      │    via ollama_chat
      │                    │                     │    (5-10s)
      │                    │                     │
-     │                    │  <────────────────  │ 4. Return text
+     │                    │  <────────────────  │ 5. Raw response
      │                    │                     │
-     │  <─── Response: {response: "..."}  ──────┤
+     │                    │ 6. Parse response   │
+     │                    │    into Signature   │
+     │                    │    output fields    │
      │                    │                     │
-     │ 5. Post-process:   │                     │
-     │    ├─> Remove      │                     │
-     │    │   specific    │                     │
-     │    │   ticker refs │                     │
-     │    ├─> Format as   │                     │
-     │    │   bullets     │                     │
+     │  <─── result.feedback ──────────────┤    │
+     │       (structured output)                │
+     │                    │                     │
+     │ 7. Post-process:   │                     │
+     │    ├─> Already     │                     │
+     │    │   formatted   │                     │
+     │    │   by DSPy     │                     │
      │    └─> Cache       │                     │
      │        (30 mins)   │                     │
      │                    │                     │
-     │ 6. Store in DB     │                     │
+     │ 8. Store in DB     │                     │
      │    (coach_         │                     │
      │    interactions)   │                     │
      │                    │                     │
-     │ 7. Return to       │                     │
+     │ 9. Return to       │                     │
      │    client          │                     │
      │                    │                     │
      └────────────────────┴─────────────────────┴─────────┘
+
+Key Advantages of DSPy Approach:
+- Structured I/O via Signatures (type-safe)
+- Automatic prompt optimization
+- Cleaner abstraction (no raw HTTP in app code)
+- Built-in retries and error handling
+- Easy model switching (Ollama → OpenAI → etc.)
 ```
 
 ---
@@ -2644,7 +2750,7 @@ python -m Artha serve --port 8000
 | **Validation** | Pydantic | 2.4+ | Data validation |
 | **Auth** | python-jose | 3.3+ | JWT tokens |
 | **Password** | bcrypt | 4.0+ | Password hashing |
-| **HTTP Client** | httpx | 0.25+ | Async HTTP (Ollama) |
+| **HTTP Client** | httpx | 0.25+ | Async HTTP (health checks) |
 | **Task Queue** | asyncio | stdlib | Async operations |
 
 ### 11.2 Frontend Stack
@@ -2661,8 +2767,10 @@ python -m Artha serve --port 8000
 | Component | Technology | Version | Purpose |
 |-----------|-----------|---------|---------|
 | **Market Data** | yfinance | 0.2.32+ | NSE/BSE historical data |
+| **LLM Framework** | DSPy | 3.0.0+ | Structured LLM programming |
 | **LLM Runtime** | Ollama | 0.1.16+ | Local AI inference |
-| **LLM Model** | Llama 3.2 | 3B | AI coach |
+| **LLM Model** | Qwen 3 | 8B | AI coach (primary) |
+| **Alt. Model** | Llama 3.2 | 3B | Lighter alternative |
 | **Alt. Model** | Mistral | 7B | Alternative coach |
 
 ### 11.4 Development Tools
@@ -2697,6 +2805,7 @@ dependencies = [
     "textual>=0.41.0",
     "plotext>=5.2.0",
     "yfinance>=0.2.32",
+    "dspy>=3.0.0",
     "pydantic>=2.4.0",
     "python-jose[cryptography]>=3.3.0",
     "bcrypt>=4.0.0",
@@ -2756,34 +2865,41 @@ def download_nse_universe(tickers: List[str]):
             logger.error(f"Failed to download {ticker}: {e}")
 ```
 
-#### **Ollama ← Artha**
+#### **Ollama ← Artha (via DSPy)**
 
 ```python
-# Runtime integration (local HTTP)
-import httpx
+# Runtime integration using DSPy (standard for DSPy 3.0.0+)
+import dspy
+import httpx  # Only for health checks
 
-class OllamaClient:
-    def __init__(self, base_url="http://localhost:11434"):
-        self.base_url = base_url
-        self.client = httpx.AsyncClient(timeout=30.0)
-    
-    async def generate(self, prompt: str, model="qwen3:8b"):
-        response = await self.client.post(
-            f"{self.base_url}/api/generate",
-            json={
-                "model": model,
-                "prompt": prompt,
-                "stream": False
-            }
-        )
-        return response.json()["response"]
-    
-    async def health_check(self) -> bool:
-        try:
-            response = await self.client.get(f"{self.base_url}/api/tags")
+# Configure DSPy LM with Ollama
+lm = dspy.LM(
+    'ollama_chat/qwen3:8b',
+    api_base='http://localhost:11434',
+    api_key=''
+)
+dspy.configure(lm=lm)
+
+# Simple health check utility (bypasses DSPy for health monitoring)
+async def ollama_health_check(base_url: str = "http://localhost:11434") -> bool:
+    """Check if Ollama service is available."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{base_url}/api/tags")
             return response.status_code == 200
-        except:
-            return False
+    except:
+        return False
+
+# Example usage with DSPy Signature
+class CoachPrompt(dspy.Signature):
+    """Generate coaching feedback."""
+    context: str = dspy.InputField()
+    response: str = dspy.OutputField()
+
+# Use ChainOfThought for reasoning
+coach = dspy.ChainOfThought(CoachPrompt)
+result = coach(context="Student bought 100 shares of ZYTEX at ₹345")
+# result.response contains the LLM's feedback
 ```
 
 ### 12.2 Future Integrations (Post-MVP)
