@@ -30,8 +30,19 @@ pydantic>=2.12.3
 
 textual>=6.4.0
 textual-dev>=1.8.0
+plotext>=5.3.1
 
 # Server and MCP
 
 fastmcp>=2.12.5
 fastapi>=0.119.1
+
+fastapi-cli>=0.0.14
+fastapi-cloud-cli>=0.3.1
+httptools>=0.7.1
+rich-toolkit>=0.15.1
+rignore>=0.7.4
+sentry-sdk>=2.43.0
+typer>=0.20.0
+uvloop>=0.22.1
+watchfiles>=1.1.1
