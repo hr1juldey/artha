@@ -6,7 +6,8 @@
         "CONTEXT7_API_KEY": "ctx7sk-c8dd117f-28fb-41fc-90fb-af66313c0362",
         "Accept": "application/json, text/event-stream"
       }
-    }
+    },
+    "tavilyApiKey": "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"
   },
   "$version": 2
 }
