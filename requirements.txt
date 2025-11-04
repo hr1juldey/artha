@@ -26,6 +26,8 @@ langchain-community>=0.4.1
 
 pydantic>=2.12.3
 
+SQLAlchemy>=2.0.40
+
 # TUI
 
 textual>=6.4.0
