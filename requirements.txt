@@ -1,0 +1,37 @@
+# Numerical & scientific
+numpy>=2.3.4
+scipy>=1.15.1
+
+# Data analysis & plotting
+pandas>=2.3.3
+matplotlib>=3.10.7
+seaborn>=0.13.2
+tqdm>=4.66.5
+
+# Market Data
+yfinance>=0.2.60
+
+# Utilities & niceties used across the scripts
+python-dotenv>=1.0.0      # optional, recommended for config via .env
+typing-extensions>=4.7.1  # sometimes needed on newer Python versions
+
+
+# LLM and instruction tuning
+
+dspy>=3.0.0
+langchain>=1.0.1
+langchain-community>=0.4.1
+
+# Data 
+
+pydantic>=2.12.3
+
+# TUI
+
+textual>=6.4.0
+textual-dev>=1.8.0
+
+# Server and MCP
+
+fastmcp>=2.12.5
+fastapi>=0.119.1
