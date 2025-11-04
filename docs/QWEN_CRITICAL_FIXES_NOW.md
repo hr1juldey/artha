@@ -10,7 +10,7 @@
 
 Game crashes with this error when pressing spacebar:
 
-```
+```bash
 UNIQUE constraint failed: positions.game_id, positions.symbol
 ```
 
@@ -111,17 +111,17 @@ python -m src.main
 
 ## BUG #2: Escape Key Doesn't Work in Trade Modal
 
-### Problem
+### Problem with the escape key
 
 When trade modal is open, pressing Escape does nothing. User cannot exit modal.
 
-### Root Cause
+### Root Cause of the escape key
 
 **File:** `src/tui/screens/trade_modal.py`
 
 Your previous fix added BINDINGS but Input/Select widgets capture Escape before it reaches the modal. Need event-level interception.
 
-### THE FIX
+### THE FIX the escape key
 
 **Step 1:** Open `src/tui/screens/trade_modal.py`
 
