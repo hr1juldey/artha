@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "dataframe-textual>=0.3.2",
     "dspy>=3.0.0",
     "fastapi-cli>=0.0.14",
     "fastapi-cloud-cli>=0.3.1",

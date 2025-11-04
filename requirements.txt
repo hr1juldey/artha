@@ -34,7 +34,7 @@ aiosqlite>=0.20.0
 textual>=6.4.0
 textual-dev>=1.8.0
 plotext>=5.3.1
-
+dataframe-textual>=0.3.2
 # Server and MCP
 
 fastmcp>=2.12.5
