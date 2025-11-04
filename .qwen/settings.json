@@ -7,5 +7,6 @@
         "Accept": "application/json, text/event-stream"
       }
     }
-  }
+  },
+  "$version": 2
 }

@@ -71,7 +71,7 @@ Artha is a local-first educational stock market simulator designed to teach Indi
 
 ### 1.4 Assumptions
 
-- Users have Python 3.10+ installed
+- Users have Python 3.12+ installed
 - Ollama runs successfully on user's machine
 - yfinance API remains free and accessible
 - SQLite sufficient for 10,000 users per instance
@@ -197,7 +197,7 @@ Artha is a local-first educational stock market simulator designed to teach Indi
 │  ┌─────────────────────────▼───────────────────────────────┐    │
 │  │  Process 3: Ollama Service (optional)                   │    │
 │  │  Port: 11434                                            │    │
-│  │  Model: llama3.2:3b                                     │    │
+│  │  Model: qwen3:8b                                        │    │
 │  └─────────────────────────────────────────────────────────┘    │
 │                                                                 │
 │  File System:                                                   │
@@ -614,7 +614,7 @@ class OllamaClient:
     async def generate(
         self,
         prompt: str,
-        model: str = "llama3.2:3b",
+        model: str = "qwen3:8b",
         temperature: float = 0.7,
         max_tokens: int = 300
     ) -> str:
@@ -1966,7 +1966,7 @@ Server -> Client:
      │    with context    │                     │
      │                    │                     │
      ├──── POST /api/generate ───────────────>  │
-     │    {model: llama3.2:3b,                  │
+     │    {model: qwen3:8b,                     │
      │     prompt: "...",                       │
      │     temperature: 0.7}                    │
      │                    │                     │
@@ -2109,7 +2109,7 @@ import subprocess
 def call_ollama_safe(prompt: str):
     # Use list args, never shell=True
     proc = subprocess.run(
-        ['ollama', 'run', 'llama3.2:3b', prompt],
+        ['ollama', 'run', 'qwen3:8b', prompt],
         capture_output=True,
         text=True,
         timeout=30,
@@ -2334,7 +2334,7 @@ async def get_coach_feedback_async(prompt: str):
     async with httpx.AsyncClient() as client:
         response = await client.post(
             "http://localhost:11434/api/generate",
-            json={"model": "llama3.2:3b", "prompt": prompt},
+            json={"model": "qwen3:8b", "prompt": prompt},
             timeout=30.0
         )
         return response.json()
@@ -2488,7 +2488,7 @@ if ! command -v ollama &> /dev/null; then
     echo "   Run: curl -fsSL https://ollama.com/install.sh | sh"
 else
     echo "✓ Ollama found"
-    ollama pull llama3.2:3b
+    ollama pull qwen3:8b
 fi
 
 # Setup directories
@@ -2538,7 +2538,7 @@ data:
 
 ollama:
   base_url: http://localhost:11434
-  model: llama3.2:3b
+  model: qwen3:8b
   temperature: 0.7
   timeout: 30
 
@@ -2767,7 +2767,7 @@ class OllamaClient:
         self.base_url = base_url
         self.client = httpx.AsyncClient(timeout=30.0)
     
-    async def generate(self, prompt: str, model="llama3.2:3b"):
+    async def generate(self, prompt: str, model="qwen3:8b"):
         response = await self.client.post(
             f"{self.base_url}/api/generate",
             json={
