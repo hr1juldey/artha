@@ -1,0 +1,96 @@
+/* Textual CSS for styling */
+
+Screen {
+    align: center middle;
+}
+
+#menu-container {
+    width: 60;
+    height: auto;
+    border: thick $background 80%;
+    background: $surface;
+    padding: 2 4;
+}
+
+#menu-options {
+    width: 100%;
+    height: auto;
+}
+
+#title {
+    text-align: center;
+    text-style: bold;
+    color: $accent;
+}
+
+#subtitle {
+    text-align: center;
+    color: $text-muted;
+    padding-bottom: 2;
+}
+
+Button {
+    width: 100%;
+    margin: 1 0;
+}
+
+#status {
+    dock: top;
+    height: 3;
+    content-align: center middle;
+    background: $boost;
+    border-bottom: solid $primary;
+}
+
+.section-title {
+    text-style: bold;
+    color: $accent;
+    padding: 1 0;
+}
+
+DataTable {
+    height: 1fr;
+}
+
+/* Add modal styles */
+#trade-modal {
+    width: 60;
+    height: auto;
+    border: thick $primary;
+    background: $surface;
+    padding: 1 2;
+}
+
+#modal-title {
+    text-align: center;
+    text-style: bold;
+    color: $accent;
+}
+
+#cash-display {
+    text-align: center;
+    color: $success;
+    padding-bottom: 1;
+}
+
+Label {
+    padding-top: 1;
+}
+
+Input, Select {
+    margin-bottom: 1;
+}
+
+#estimate {
+    padding: 1 0;
+    text-align: center;
+}
+
+Horizontal {
+    align: center middle;
+    height: auto;
+}
+
+Horizontal Button {
+    margin: 1;
+}

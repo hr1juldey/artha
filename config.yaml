@@ -1,0 +1,27 @@
+# Artha Configuration
+
+game:
+  initial_capital: 1000000
+  default_days: 30
+  commission_rate: 0.0003
+
+data:
+  cache_enabled: true
+  cache_duration_hours: 24
+  default_stocks:
+    - RELIANCE
+    - TCS
+    - INFY
+    - HDFCBANK
+    - ICICIBANK
+
+ai:
+  enabled: true
+  model: "qwen3:8b"
+  timeout_seconds: 30
+  fallback_on_error: true
+
+display:
+  currency_symbol: "₹"
+  date_format: "%Y-%m-%d"
+  theme: "dark"
