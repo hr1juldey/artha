@@ -1,0 +1,212 @@
+╔═══════════════════════════════════════════════════════════════════╗
+║  ARTHA TRADING TERMINAL - PROFESSIONAL ENHANCEMENT INSTRUCTIONS   ║
+║  Target: Transform into Bloomberg Terminal-style professional UI  ║
+╚═══════════════════════════════════════════════════════════════════╝
+
+📖 FULL DETAILS: Read docs/QWEN_ENHANCEMENT_PROMPT.md
+🧪 TESTING: Follow 18 test cases in the document
+🔍 HELP: Use context7 for Textual patterns, tavily for domain knowledge
+
+═══════════════════════════════════════════════════════════════════
+
+🚨 PHASE 1: CRITICAL FIXES (DO THIS FIRST!)
+═══════════════════════════════════════════════════════════════════
+
+Fix #1: src/tui/screens/trade_modal.py
+❌ Problem: Cannot exit modal with Escape key
+✅ Solution: Add on_key() event handler that captures Escape before widgets
+
+Fix #2: src/database/dao.py (save_positions function)
+❌ Problem: UNIQUE constraint violation crashes game on day advance
+✅ Solution: Use UPDATE/INSERT/DELETE pattern instead of DELETE-all + INSERT-all
+
+📝 Detailed fixes in docs/QWEN_CRITICAL_FIXES_NOW.md
+🧪 Test: Press Escape in modal, advance 10 days - should work smoothly
+
+═══════════════════════════════════════════════════════════════════
+
+🎨 PHASE 2: PROFESSIONAL TRADING TERMINAL UI
+═══════════════════════════════════════════════════════════════════
+
+Transform main_screen.py into multi-panel trading dashboard:
+
+✅ Top metrics bar (Day, Cash, Portfolio, P&L, P&L%)
+✅ Live scrolling ticker with all positions
+✅ Multi-panel layout (left: charts + portfolio, right: watchlist + coach)
+✅ Enhanced DataTable with color-coded P&L and XIRR column
+✅ Professional color scheme (green=positive, red=negative)
+✅ Tab panels for Positions / History views
+
+Reference UIs:
+- Bloomberg Terminal layout
+- Zerodha Kite trading platform
+- TradingView charts
+- dolphie TUI: https://github.com/charles-001/dolphie
+- memray TUI: https://github.com/bloomberg/memray
+
+If stuck: context7 "Textual DataTable color coding and layout patterns"
+
+═══════════════════════════════════════════════════════════════════
+
+📊 PHASE 3: LIVE CHARTS AND VISUALIZATIONS
+═══════════════════════════════════════════════════════════════════
+
+Create/enhance widgets:
+
+1. PortfolioChartWidget (src/tui/widgets/chart_widget.py)
+   - Multiple series: Total Value, Stocks Value, Cash
+   - Horizontal line for initial capital (benchmark)
+   - Uses plotext with dark theme
+   - Reactive updates on day advance
+
+2. LiveTickerWidget (src/tui/widgets/live_ticker.py)
+   - Scrolling ticker tape at top
+   - Shows Symbol: Price (+/-X.XX%)
+   - Auto-refreshes every 2 seconds
+
+3. StockMiniChart (src/tui/widgets/chart_widget.py)
+   - Compact sparklines for watchlist
+   - 30-day price history
+   - Shows symbol and % change
+
+4. WatchlistWidget (src/tui/widgets/watchlist.py)
+   - Default stocks: RELIANCE, TCS, INFY, HDFCBANK, ICICIBANK
+   - Each stock has mini chart
+   - Shows current price and trend
+
+If stuck: context7 "plotext multi-series line charts terminal"
+
+═══════════════════════════════════════════════════════════════════
+
+🎮 PHASE 4: REALISTIC MARKET SIMULATION
+═══════════════════════════════════════════════════════════════════
+
+Enhance src/data/loader.py with realistic market dynamics:
+
+✅ Market sentiment: -1 (bearish) to +1 (bullish), random walk
+✅ Volatility regimes: low/normal/high with Markov switching
+✅ Stock betas: Different stocks react differently to market
+   - RELIANCE: 1.2 (aggressive)
+   - TCS: 0.8 (defensive)
+   - HDFCBANK: 1.0 (market)
+✅ Correlated returns: All stocks move somewhat together
+✅ Daily returns: ~1-3% typical, not wild 50% swings
+✅ Add get_price_history() method for chart data
+
+If stuck: tavily "stock market simulation random walk realistic returns"
+
+═══════════════════════════════════════════════════════════════════
+
+🧪 TESTING CRITERIA (RUN AFTER EACH PHASE)
+═══════════════════════════════════════════════════════════════════
+
+Critical Tests (Must Pass):
+✅ Test 1: Escape key closes modal from any input field
+✅ Test 2: Advance 10 days without database errors
+✅ Test 3: Buy same stock twice, advance days - correct quantities
+✅ Test 4: Portfolio chart visible with line graph
+✅ Test 5: Chart updates when pressing spacebar
+✅ Test 6: XIRR column shows in portfolio grid
+✅ Test 9: Game continues past day 280 to day 500+
+
+Edge Cases:
+✅ Test 14: Sell all shares - position disappears
+✅ Test 15: Insufficient funds - clear error message
+✅ Test 16: Empty portfolio - shows "No positions" gracefully
+✅ Test 18: Negative P&L shows in red text
+
+Full test suite (18 tests) in docs/QWEN_ENHANCEMENT_PROMPT.md
+
+═══════════════════════════════════════════════════════════════════
+
+🔍 USING CONTEXT7 AND TAVILY SEARCH
+═══════════════════════════════════════════════════════════════════
+
+Use context7 when:
+✅ Finding Textual framework patterns
+✅ Looking for plotext examples
+✅ Searching reactive widget patterns
+✅ Finding DataTable usage examples
+
+Example: context7 "Textual ModalScreen Escape key handling"
+
+Use tavily search when:
+✅ Researching trading terminal UI designs
+✅ Learning financial calculations (XIRR, beta, returns)
+✅ Understanding market simulation theory
+✅ Finding domain knowledge about stock markets
+
+Example: tavily "Bloomberg terminal layout design principles"
+
+Decision tree:
+- Textual framework issue? → context7
+- Financial domain knowledge? → tavily
+- UI design inspiration? → tavily
+- Code patterns? → context7
+
+═══════════════════════════════════════════════════════════════════
+
+📋 IMPLEMENTATION CHECKLIST
+═══════════════════════════════════════════════════════════════════
+
+Phase 1 - Critical Fixes:
+[ ] Fix trade_modal.py escape key
+[ ] Fix dao.py database constraint
+[ ] Test modal closes with Escape
+[ ] Test day advancement works
+
+Phase 2 - Professional UI:
+[ ] Update main_screen.py layout
+[ ] Add metric cards
+[ ] Create live ticker widget
+[ ] Enhance portfolio DataTable
+[ ] Add XIRR column
+
+Phase 3 - Live Charts:
+[ ] Enhance PortfolioChartWidget
+[ ] Create StockMiniChart
+[ ] Create LiveTickerWidget
+[ ] Create WatchlistWidget
+
+Phase 4 - Market Simulation:
+[ ] Add market sentiment
+[ ] Add volatility regimes
+[ ] Implement stock betas
+[ ] Add correlated returns
+[ ] Test realistic price changes
+
+Phase 5 - Testing:
+[ ] Run all 18 test cases
+[ ] Fix any failures
+[ ] Document issues
+
+═══════════════════════════════════════════════════════════════════
+
+🎯 SUCCESS METRICS
+═══════════════════════════════════════════════════════════════════
+
+✅ All 18 tests pass without crashes
+✅ Game responds within 100ms to actions
+✅ Charts update smoothly with correct data
+✅ Prices change 1-3% per day on average
+✅ UI looks professional (not hacky)
+✅ Game runs 500+ days without memory leaks
+✅ Coach provides personalized insights
+✅ Data survives save/load cycles
+
+═══════════════════════════════════════════════════════════════════
+
+🚀 START HERE
+═══════════════════════════════════════════════════════════════════
+
+1. Read docs/QWEN_ENHANCEMENT_PROMPT.md for full details
+2. Start with Phase 1 critical fixes (MANDATORY)
+3. Test after each phase
+4. Use context7/tavily when stuck
+5. Follow the 18-test suite
+6. Check off items in checklist as you complete them
+
+Goal: Professional Bloomberg Terminal-style trading simulator with
+      realistic market dynamics and intelligent AI coaching.
+
+Good luck! 🎮📈

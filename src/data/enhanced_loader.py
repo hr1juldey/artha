@@ -1,22 +1,85 @@
-"""Market data loading from yfinance"""
+"""Enhanced Market Data Loader with realistic simulation"""
 import yfinance as yf
 import pandas as pd
+import numpy as np
+import random
 from pathlib import Path
 from typing import Optional, Dict, List
 from datetime import datetime, timedelta
 from src.config import DATA_DIR
-import numpy as np
-import random
 
-class MarketDataLoader:
-    """Loads and caches market data with extended support for long simulations"""
+
+class EnhancedMarketDataLoader:
+    """Market loader with realistic simulation"""
 
     def __init__(self):
         self.cache_dir = DATA_DIR / "cache"
         self.cache_dir.mkdir(exist_ok=True)
         self._cache: Dict[str, pd.DataFrame] = {}
-        # Cache for extended historical data
         self._extended_cache: Dict[str, pd.DataFrame] = {}
+        
+        # Market simulation parameters
+        self.market_sentiment = 0.0  # -1 (bearish) to +1 (bullish)
+        self.volatility_regime = "normal"  # low, normal, high
+        self.sector_trends = {}  # Track sector momentum
+        self.tracked_symbols = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK"]
+        
+        # Stock betas (market sensitivity)
+        self.stock_betas = {
+            "RELIANCE": 1.2,    # High beta
+            "TCS": 0.8,         # Low beta (defensive)
+            "INFY": 0.9,        # Low beta
+            "HDFCBANK": 1.0,    # Market beta
+            "ICICIBANK": 1.1,   # Slightly higher
+        }
+
+    def simulate_market_day(self, current_day: int) -> Dict[str, float]:
+        """Simulate realistic market movements for all stocks"""
+        # Update market regime
+        self._update_market_regime(current_day)
+
+        # Generate correlated returns for all stocks
+        returns = {}
+        market_return = self._generate_market_return()
+
+        for symbol in self.tracked_symbols:
+            # Stock return = market return + stock-specific noise
+            stock_beta = self._get_stock_beta(symbol)
+            stock_return = (market_return * stock_beta) + self._generate_stock_noise()
+            returns[symbol] = stock_return
+
+        return returns
+
+    def _update_market_regime(self, day: int) -> None:
+        """Update market sentiment and volatility"""
+        # Market sentiment changes gradually (random walk)
+        sentiment_change = random.gauss(0, 0.05)
+        self.market_sentiment = max(-1, min(1, self.market_sentiment + sentiment_change))
+
+        # Volatility regime switches (Markov chain)
+        if random.random() < 0.05:  # 5% chance of regime switch
+            regimes = ["low", "normal", "high"]
+            self.volatility_regime = random.choice(regimes)
+
+    def _generate_market_return(self) -> float:
+        """Generate market-wide return"""
+        # Base volatility by regime
+        vol_map = {"low": 0.01, "normal": 0.02, "high": 0.04}
+        volatility = vol_map[self.volatility_regime]
+
+        # Return = sentiment drift + random noise
+        drift = self.market_sentiment * 0.001  # Small positive drift in bull market
+        noise = random.gauss(0, volatility)
+
+        return drift + noise
+
+    def _get_stock_beta(self, symbol: str) -> float:
+        """Get stock's beta (market sensitivity)"""
+        return self.stock_betas.get(symbol, 1.0)  # Default to market beta
+
+    def _generate_stock_noise(self) -> float:
+        """Generate stock-specific random noise"""
+        return random.gauss(0, 0.015)  # 1.5% stock-specific volatility
 
     def get_stock_data(
         self,
@@ -61,12 +124,12 @@ class MarketDataLoader:
                 self._extended_cache[cache_key] = df
                 return df
             else:
-                # ✅ FIX: Return mock data instead of None
+                # Return mock data
                 return self._generate_mock_data(symbol, days)
 
         except Exception as e:
             print(f"Error downloading {symbol}: {e}")
-            # ✅ FIX: Return mock data instead of None
+            # Return mock data
             return self._generate_mock_data(symbol, days)
 
     def get_current_price(self, symbol: str) -> float:
@@ -95,7 +158,6 @@ class MarketDataLoader:
             
             # Apply random walk simulation to continue beyond historical data
             # Use market volatility characteristics for realistic simulation
-            # Adjust price by small amount based on market volatility
             volatility_factor = 0.02  # 2% daily volatility
             adjustment = random.uniform(-volatility_factor, volatility_factor)
             return max(1.0, last_price * (1 + adjustment))  # Ensure price doesn't go below ₹1
@@ -116,6 +178,13 @@ class MarketDataLoader:
         
         return self._generate_fallback_price(symbol)
 
+    def get_price_history(self, symbol: str, days: int = 30) -> List[float]:
+        """Get recent price history for sparkline charts"""
+        df = self.get_stock_data(symbol, days=days)
+        if df is not None and not df.empty:
+            return df['Close'].tail(days).tolist()
+        return []
+
     def _generate_fallback_price(self, symbol: str) -> float:
         """Generate fallback price when no data is available"""
         # Base prices for common stocks
@@ -135,16 +204,7 @@ class MarketDataLoader:
         return base_prices.get(symbol, 1000.0)
 
     def _generate_mock_data(self, symbol: str, days: int = 365) -> pd.DataFrame:
-        """Generate fallback mock data when download fails
-
-        Args:
-            symbol: Stock symbol
-            days: Number of days of data
-
-        Returns:
-            Mock DataFrame with realistic price movements
-        """
-
+        """Generate fallback mock data with realistic market dynamics"""
         print(f"⚠️  Using mock data for {symbol} (download failed)")
 
         # Base prices for common stocks
@@ -170,9 +230,18 @@ class MarketDataLoader:
             freq='D'
         )
 
-        # Random walk with slight upward bias
+        # Simulate realistic market behavior based on market regime
         np.random.seed(hash(symbol) % (2**32))  # Consistent for same symbol
-        returns = np.random.normal(0.001, 0.02, days)  # 0.1% daily return, 2% volatility
+        
+        # Adjust volatility based on market sentiment and regime
+        vol_map = {"low": 0.01, "normal": 0.02, "high": 0.04}
+        volatility = vol_map[self.volatility_regime]
+        
+        # Add drift based on sentiment
+        drift = self.market_sentiment * 0.0005  # Small drift based on sentiment
+        
+        # Generate returns with drift
+        returns = np.random.normal(drift, volatility, days)
         prices = base_price * (1 + returns).cumprod()
 
         # Create DataFrame
@@ -200,13 +269,6 @@ class MarketDataLoader:
             "BHARTIARTL",
             "BAJFINANCE"
         ]
-
-    def get_price_history(self, symbol: str, days: int = 30) -> List[float]:
-        """Get recent price history for sparkline charts"""
-        df = self.get_stock_data(symbol, days=days)
-        if df is not None and not df.empty:
-            return df['Close'].tail(days).tolist()
-        return []
 
     def preload_stocks(self, symbols: list[str]) -> None:
         """Preload data for multiple stocks"""

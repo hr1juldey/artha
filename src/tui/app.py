@@ -4,13 +4,18 @@ from textual.binding import Binding
 import logging
 from src.tui.screens.menu_screen import MenuScreen
 from src.tui.screens.main_screen import MainScreen
+from src.tui.screens.dashboard_screen import DashboardScreen
 from src.models import GameState, Portfolio, Position
-from src.config import INITIAL_CAPITAL, DEFAULT_USERNAME, DEFAULT_STOCKS, DATA_DIR
+from src.config import INITIAL_CAPITAL, DEFAULT_USERNAME, DEFAULT_STOCKS, DATA_DIR, DEFAULT_TOTAL_DAYS
 from src.database import init_db, get_session, User, Game
 from src.database.dao import GameDAO, UserDAO
 from src.data import MarketDataLoader
-from src.coach import CoachManager
+from src.data.enhanced_loader import EnhancedMarketDataLoader
+from src.coach.enhanced_manager import EnhancedCoachManager
 import asyncio
+from datetime import datetime
+from src.models.transaction_models import EnhancedPosition
+from src.utils.xirr_calculator import Transaction, TransactionType
 
 # Setup logging
 logging.basicConfig(
@@ -36,8 +41,14 @@ class ArthaApp(App):
 
     def __init__(self):
         super().__init__()
-        self.market_data = MarketDataLoader()
-        self.coach = CoachManager()  # NEW
+        # Use EnhancedMarketDataLoader for realistic market simulation
+        try:
+            self.market_data = EnhancedMarketDataLoader()
+        except ImportError:
+            # Fallback to basic MarketDataLoader if enhanced version is not available
+            self.market_data = MarketDataLoader()
+        
+        self.coach = EnhancedCoachManager()  # Using enhanced coach
         self.game_state = self._create_mock_game()
 
     def on_exception(self, exception: Exception) -> None:
@@ -49,13 +60,13 @@ class ArthaApp(App):
         )
 
     def _create_mock_game(self) -> GameState:
-        """Create mock game with REAL prices"""
+        """Create mock game with REAL prices using enhanced position model"""
         from src.config import DEFAULT_STOCKS
 
         # Preload stock data
         self.market_data.preload_stocks(DEFAULT_STOCKS)
 
-        # Create positions with real prices
+        # Create enhanced positions with real prices
         positions = []
         for symbol in DEFAULT_STOCKS[:3]:  # Use first 3
             current_price = self.market_data.get_current_price(symbol)
@@ -66,12 +77,25 @@ class ArthaApp(App):
                 # Calculate quantity to invest ~₹1.2L per stock
                 quantity = int(120000 / buy_price)
 
-                positions.append(Position(
+                # Create enhanced position with transaction history
+                enhanced_pos = EnhancedPosition(
                     symbol=symbol,
-                    quantity=quantity,
-                    avg_buy_price=buy_price,
                     current_price=current_price
-                ))
+                )
+                
+                # Add the initial transaction
+                from datetime import datetime
+                from src.models.transaction_models import PositionTransaction
+                from src.utils.xirr_calculator import TransactionType
+                initial_transaction = PositionTransaction(
+                    date=datetime.now().date(),
+                    quantity=quantity,
+                    price=buy_price,
+                    transaction_type=TransactionType.BUY
+                )
+                enhanced_pos.add_transaction(initial_transaction)
+                
+                positions.append(enhanced_pos)
 
         # Calculate remaining cash
         invested = sum(p.cost_basis for p in positions)
@@ -82,7 +106,7 @@ class ArthaApp(App):
         return GameState(
             player_name="Demo Player",
             current_day=5,
-            total_days=30,
+            total_days=DEFAULT_TOTAL_DAYS,  # Use config value
             initial_capital=INITIAL_CAPITAL,
             portfolio=portfolio
         )
@@ -160,5 +184,5 @@ class ArthaApp(App):
 
         # Install screens
         self.install_screen(MenuScreen(), name="menu")
-        self.install_screen(MainScreen(self.game_state), name="main")
+        self.install_screen(DashboardScreen(self.game_state), name="main")  # Use dashboard screen
         self.push_screen("menu")

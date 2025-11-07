@@ -109,3 +109,38 @@ class InvestingQuestionSignature(dspy.Signature):
     answer: str = dspy.OutputField(
         desc="Clear, educational answer suitable for teenagers. 3-4 sentences max. Include practical example if helpful."
     )
+
+class EnhancedTradeFeedbackSignature(dspy.Signature):
+    """Generate educational feedback with historical context and user behavior patterns"""
+    
+    # Basic trade details
+    action: str = dspy.InputField(desc="BUY or SELL")
+    symbol: str = dspy.InputField(desc="Stock symbol")
+    quantity: int = dspy.InputField(desc="Number of shares")
+    price: float = dspy.InputField(desc="Execution price")
+    portfolio_value: float = dspy.InputField(desc="Total portfolio value")
+    cash_remaining: float = dspy.InputField(desc="Cash remaining after trade")
+    num_positions: int = dspy.InputField(desc="Number of positions")
+    
+    # Historical context and user patterns
+    risk_patterns: dict = dspy.InputField(desc="User's risk-taking patterns")
+    diversification_trends: dict = dspy.InputField(desc="Diversification trends") 
+    timing_patterns: dict = dspy.InputField(desc="Timing patterns")
+    portfolio_trend: float = dspy.InputField(desc="Current portfolio trend percentage")
+
+    feedback: str = dspy.OutputField(
+        desc="2-3 personalized educational bullets about this trade based on user's historical patterns and behavior"
+    )
+
+class TrendAnalysisSignature(dspy.Signature):
+    """Analyze portfolio trends and user performance"""
+    
+    total_return: float = dspy.InputField(desc="Total portfolio return percentage")
+    volatility: float = dspy.InputField(desc="Portfolio volatility percentage")
+    trend: str = dspy.InputField(desc="General trend (positive/negative/stable)")
+    portfolio_size: int = dspy.InputField(desc="Number of portfolio history records")
+    user_risk_level: str = dspy.InputField(desc="User's risk level (low/medium/high)")
+
+    insights: str = dspy.OutputField(
+        desc="2-3 personalized insights about user's investment behavior based on trend analysis"
+    )

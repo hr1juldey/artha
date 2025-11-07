@@ -1,12 +1,14 @@
 """Trade execution logic"""
 from dataclasses import dataclass
 from enum import Enum
+from datetime import datetime
 from src.models import Portfolio, Position
 from src.config import COMMISSION_RATE
+from src.utils.xirr_calculator import TransactionType
+from src.models.transaction_models import EnhancedPosition, PositionTransaction
 
-class OrderSide(Enum):
-    BUY = "BUY"
-    SELL = "SELL"
+# Reuse TransactionType as OrderSide for compatibility
+OrderSide = TransactionType
 
 @dataclass
 class TradeResult:
@@ -58,7 +60,7 @@ class TradeExecutor:
         quantity: int,
         price: float
     ) -> TradeResult:
-        """Execute buy order"""
+        """Execute buy order with transaction tracking"""
         # Validate inputs first
         valid, message = TradeExecutor.validate_trade_inputs(symbol, quantity, price)
         if not valid:
@@ -79,28 +81,58 @@ class TradeExecutor:
         # Deduct cash
         portfolio.cash -= total_cost
 
-        # Find existing position or create new
+        # Find existing position (either legacy Position or EnhancedPosition)
         existing_pos = None
-        for pos in portfolio.positions:
-            if pos.symbol == symbol:
+        pos_idx = -1
+        for i, pos in enumerate(portfolio.positions):
+            if hasattr(pos, 'symbol') and pos.symbol == symbol:
                 existing_pos = pos
+                pos_idx = i
                 break
 
+        # Create transaction record
+        transaction = PositionTransaction(
+            date=datetime.now().date(),
+            quantity=quantity,
+            price=price,
+            transaction_type=OrderSide.BUY
+        )
+
         if existing_pos:
-            # Update average buy price
-            total_qty = existing_pos.quantity + quantity
-            total_cost_basis = (existing_pos.avg_buy_price * existing_pos.quantity) + cost
-            existing_pos.avg_buy_price = total_cost_basis / total_qty
-            existing_pos.quantity = total_qty
-            existing_pos.current_price = price
+            # Check if existing position supports transactions
+            if hasattr(existing_pos, 'add_transaction'):
+                # Add transaction to existing enhanced position
+                existing_pos.add_transaction(transaction)
+                existing_pos.current_price = price  # Update current price
+            else:
+                # Handle legacy Position model - convert to EnhancedPosition
+                # First, create an EnhancedPosition using the legacy data
+                enhanced_pos = EnhancedPosition(
+                    symbol=symbol,
+                    current_price=price,
+                )
+                
+                # Create a transaction representing the existing holdings
+                existing_transaction = PositionTransaction(
+                    date=datetime.now().date(),  # Use current date for the conversion transaction
+                    quantity=existing_pos.quantity,
+                    price=existing_pos.avg_buy_price,
+                    transaction_type=OrderSide.BUY
+                )
+                enhanced_pos.add_transaction(existing_transaction)
+                
+                # Then add the new transaction
+                enhanced_pos.add_transaction(transaction)
+                
+                # Replace the legacy position with the enhanced one
+                portfolio.positions[pos_idx] = enhanced_pos
         else:
-            # Create new position
-            new_pos = Position(
+            # Create new enhanced position with first transaction
+            new_pos = EnhancedPosition(
                 symbol=symbol,
-                quantity=quantity,
-                avg_buy_price=price,
-                current_price=price
+                current_price=price,
             )
+            new_pos.add_transaction(transaction)
             portfolio.positions.append(new_pos)
 
         return TradeResult(
@@ -119,7 +151,7 @@ class TradeExecutor:
         quantity: int,
         price: float
     ) -> TradeResult:
-        """Execute sell order"""
+        """Execute sell order with transaction tracking"""
         # Validate inputs first
         valid, message = TradeExecutor.validate_trade_inputs(symbol, quantity, price)
         if not valid:
@@ -127,9 +159,11 @@ class TradeExecutor:
 
         # Find position
         position = None
-        for pos in portfolio.positions:
-            if pos.symbol == symbol:
+        pos_idx = -1
+        for i, pos in enumerate(portfolio.positions):
+            if hasattr(pos, 'symbol') and pos.symbol == symbol:
                 position = pos
+                pos_idx = i
                 break
 
         if not position:
@@ -138,10 +172,22 @@ class TradeExecutor:
                 message=f"No position in {symbol}"
             )
 
-        if position.quantity < quantity:
+        # Check quantity based on position type
+        if hasattr(position, 'quantity'):
+            if hasattr(position, 'add_transaction'):
+                # EnhancedPosition - use its quantity property
+                available_quantity = position.quantity
+            else:
+                # Legacy Position model
+                available_quantity = position.quantity
+        else:
+            # Fallback for old position model
+            available_quantity = position.quantity if hasattr(position, 'quantity') else 0
+
+        if available_quantity < quantity:
             return TradeResult(
                 success=False,
-                message=f"Insufficient quantity. Have {position.quantity}, trying to sell {quantity}"
+                message=f"Insufficient quantity. Have {available_quantity}, trying to sell {quantity}"
             )
 
         # Calculate proceeds
@@ -149,12 +195,56 @@ class TradeExecutor:
         commission = TradeExecutor.calculate_commission(proceeds)
         net_proceeds = proceeds - commission
 
-        # Update position
-        position.quantity -= quantity
-        if position.quantity == 0:
-            portfolio.positions.remove(position)
+        # Create transaction record
+        transaction = PositionTransaction(
+            date=datetime.now().date(),
+            quantity=quantity,
+            price=price,
+            transaction_type=OrderSide.SELL
+        )
+
+        if hasattr(position, 'add_transaction'):
+            # Add transaction to enhanced position
+            position.add_transaction(transaction)
+            if position.quantity == 0:
+                # Remove position if all shares sold
+                portfolio.positions.pop(pos_idx)
+            else:
+                position.current_price = price
         else:
-            position.current_price = price
+            # Handle legacy Position model by converting to EnhancedPosition first
+            if hasattr(position, 'quantity'):
+                # Convert legacy position to enhanced position (if it's not already)
+                enhanced_pos = EnhancedPosition(
+                    symbol=symbol,
+                    current_price=price,
+                )
+                
+                # Create a transaction representing the existing holdings
+                existing_transaction = PositionTransaction(
+                    date=datetime.now().date(),  # Use current date for the conversion transaction
+                    quantity=position.quantity,
+                    price=position.avg_buy_price,
+                    transaction_type=OrderSide.BUY
+                )
+                enhanced_pos.add_transaction(existing_transaction)
+                
+                # Add the sell transaction
+                enhanced_pos.add_transaction(transaction)
+                
+                # Replace the legacy position with the enhanced one
+                portfolio.positions[pos_idx] = enhanced_pos
+                
+                # If quantity becomes 0, remove the position
+                if enhanced_pos.quantity == 0:
+                    portfolio.positions.pop(pos_idx)
+            else:
+                # Fallback for basic position - use legacy approach
+                position.quantity -= quantity
+                if position.quantity == 0:
+                    portfolio.positions.pop(pos_idx)
+                else:
+                    position.current_price = price
 
         # Add cash
         portfolio.cash += net_proceeds
