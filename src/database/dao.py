@@ -142,7 +142,7 @@ class GameDAO:
             positions=positions
         )
 
-        return GameState(
+        game_state = GameState(
             player_name=user.full_name or user.username,
             current_day=game.current_day,
             total_days=game.total_days,
@@ -150,6 +150,18 @@ class GameDAO:
             portfolio=portfolio,
             created_at=game.created_at
         )
+
+        # Initialize portfolio_history with current state
+        # (Full history is not persisted, so we start with current snapshot)
+        game_state.portfolio_history = [{
+            "day": game.current_day,
+            "total_value": portfolio.total_value,
+            "cash": portfolio.cash,
+            "positions_value": portfolio.positions_value,
+            "pnl": portfolio.total_pnl
+        }]
+
+        return game_state
 
 class UserDAO:
     """Data Access Object for User operations"""

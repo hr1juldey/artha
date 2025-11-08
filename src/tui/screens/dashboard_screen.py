@@ -210,11 +210,16 @@ class DashboardScreen(Screen):
             # Fallback if positions don't have the attribute yet
             sorted_positions = self.portfolio.positions
 
+        # Calculate game's current date for XIRR calculation
+        from datetime import timedelta
+        game_current_date = self.game_state.created_at.date() + timedelta(days=self.game_state.current_day)
+
         for pos in sorted_positions:
             # Calculate metrics
             pnl = pos.unrealized_pnl if hasattr(pos, 'unrealized_pnl') else (pos.current_price - pos.avg_buy_price) * pos.quantity if hasattr(pos, 'avg_buy_price') else 0
             pnl_pct = pos.unrealized_pnl_pct if hasattr(pos, 'unrealized_pnl_pct') else 0
-            xirr = pos.calculate_xirr() * 100 if hasattr(pos, 'calculate_xirr') else 0
+            # Pass game's current date for proper XIRR calculation based on simulation time
+            xirr = pos.calculate_xirr(game_current_date) * 100 if hasattr(pos, 'calculate_xirr') else 0
             days_held = self._calculate_days_held(pos)
 
             # Color code based on P&L
@@ -235,8 +240,14 @@ class DashboardScreen(Screen):
 
     def _calculate_days_held(self, position) -> int:
         """Calculate number of days this position has been held"""
-        # For now, return a placeholder
-        # This would need to be implemented with actual purchase date tracking
+        # If position has transaction history, calculate from first transaction
+        if hasattr(position, 'transactions') and position.transactions:
+            from datetime import timedelta
+            game_current_date = self.game_state.created_at.date() + timedelta(days=self.game_state.current_day)
+            first_transaction_date = position.transactions[0].date
+            days_held = (game_current_date - first_transaction_date).days
+            return days_held
+        # Fallback: assume held since game start
         return self.game_state.current_day
 
     def action_quit(self) -> None:
@@ -271,20 +282,26 @@ class DashboardScreen(Screen):
             self.app.notify("Could not get price for stock", severity="error")
             return
 
+        # Calculate game's current date for transaction
+        from datetime import timedelta
+        game_current_date = self.game_state.created_at.date() + timedelta(days=self.game_state.current_day)
+
         # Execute trade
         if action == "BUY":
             result = TradeExecutor.execute_buy(
                 self.game_state.portfolio,
                 symbol,
                 quantity,
-                price
+                price,
+                game_current_date
             )
         else:
             result = TradeExecutor.execute_sell(
                 self.game_state.portfolio,
                 symbol,
                 quantity,
-                price
+                price,
+                game_current_date
             )
 
         # Show result

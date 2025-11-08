@@ -2,7 +2,7 @@
 
 game:
   initial_capital: 1000000
-  default_days: 30
+  default_days: 300
   commission_rate: 0.0003
 
 data:

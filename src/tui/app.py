@@ -82,34 +82,50 @@ class ArthaApp(App):
                     symbol=symbol,
                     current_price=current_price
                 )
-                
-                # Add the initial transaction
-                from datetime import datetime
-                from src.models.transaction_models import PositionTransaction
-                from src.utils.xirr_calculator import TransactionType
-                initial_transaction = PositionTransaction(
-                    date=datetime.now().date(),
-                    quantity=quantity,
-                    price=buy_price,
-                    transaction_type=TransactionType.BUY
-                )
-                enhanced_pos.add_transaction(initial_transaction)
-                
+
                 positions.append(enhanced_pos)
 
-        # Calculate remaining cash
-        invested = sum(p.cost_basis for p in positions)
-        cash = INITIAL_CAPITAL - invested
+                # Store the buy data for later use (after game state is created)
+                positions[-1]._pending_quantity = quantity
+                positions[-1]._pending_buy_price = buy_price
 
-        portfolio = Portfolio(cash=cash, positions=positions)
-
-        return GameState(
+        # Create game state first to get created_at timestamp
+        game_state = GameState(
             player_name="Demo Player",
             current_day=5,
-            total_days=DEFAULT_TOTAL_DAYS,  # Use config value
+            total_days=DEFAULT_TOTAL_DAYS,
             initial_capital=INITIAL_CAPITAL,
-            portfolio=portfolio
+            portfolio=Portfolio(cash=0, positions=positions)  # Temporarily set cash to 0
         )
+
+        # Now add transactions with dates based on game time
+        from datetime import datetime, timedelta
+        from src.models.transaction_models import PositionTransaction
+        from src.utils.xirr_calculator import TransactionType
+
+        # Purchase date = game start date (created_at)
+        # Game is on day 5, so purchases were made on day 0 (game start)
+        game_start_date = game_state.created_at.date()
+
+        for pos in positions:
+            # Add transaction with correct date using stored pending data
+            initial_transaction = PositionTransaction(
+                date=game_start_date,
+                quantity=pos._pending_quantity,
+                price=pos._pending_buy_price,
+                transaction_type=TransactionType.BUY
+            )
+            pos.add_transaction(initial_transaction)
+
+            # Clean up temporary attributes
+            delattr(pos, '_pending_quantity')
+            delattr(pos, '_pending_buy_price')
+
+        # Calculate remaining cash after all transactions are added
+        invested = sum(p.cost_basis for p in positions)
+        game_state.portfolio.cash = INITIAL_CAPITAL - invested
+
+        return game_state
 
     async def _init_database(self):
         """Initialize database"""

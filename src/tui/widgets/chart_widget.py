@@ -26,6 +26,10 @@ class PortfolioChartWidget(Static):
         """Initialize the chart when widget is mounted"""
         self.refresh_chart()
 
+    def on_resize(self) -> None:
+        """Handle widget resize events"""
+        self.refresh_chart()
+
     def refresh_chart(self) -> None:
         """Render chart with multiple series"""
         plt.clear_data()
@@ -35,10 +39,35 @@ class PortfolioChartWidget(Static):
             self.update("📈 No data yet. Make trades to see your portfolio grow!")
             return
 
+        # Get widget size and set plot size accordingly
+        # Subtract border/padding (approximately 4 lines for border and labels)
+        width = self.size.width - 4
+        height = self.size.height - 4
+
+        # Ensure minimum size with more generous constraints
+        min_width = 40  # Minimum width for readable charts
+        min_height = 10  # Minimum height for readable charts
+        
+        if width < min_width:
+            width = min_width
+        if height < min_height:
+            height = min_height
+
+        # Also ensure we don't exceed reasonable maximums to prevent distortion
+        max_width = 120  # Maximum width to prevent excessive stretching
+        max_height = 30  # Maximum height to prevent excessive stretching
+        
+        if width > max_width:
+            width = max_width
+        if height > max_height:
+            height = max_height
+
+        plt.plotsize(width, height)
+
         # Extract data
         days = [entry['day'] for entry in self.portfolio_history]
         total_values = [entry['total_value'] for entry in self.portfolio_history]
-        
+
         # Add stocks and cash values if available
         if 'positions_value' in self.portfolio_history[0]:
             positions_values = [entry['positions_value'] for entry in self.portfolio_history]
@@ -69,7 +98,11 @@ class PortfolioChartWidget(Static):
 
     def update_portfolio_history(self, portfolio_history: List[Dict]) -> None:
         """Update the widget with new portfolio history"""
-        self.portfolio_history = portfolio_history
+        # Create a new list to trigger reactive watcher
+        # (Textual reactive only triggers on reference change, not content change)
+        self.portfolio_history = list(portfolio_history)
+        # Also explicitly refresh to ensure update
+        self.refresh_chart()
 
 
 class StockMiniChart(Static):
@@ -79,6 +112,13 @@ class StockMiniChart(Static):
         super().__init__(*args, **kwargs)
         self.symbol = symbol
         self.price_history = price_history
+
+    def on_mount(self) -> None:
+        """Initialize the chart when widget is mounted"""
+        self.render_mini_chart()
+
+    def on_resize(self) -> None:
+        """Handle widget resize events"""
         self.render_mini_chart()
 
     def render_mini_chart(self) -> None:
@@ -90,8 +130,12 @@ class StockMiniChart(Static):
             self.update(f"{self.symbol}: No history")
             return
 
+        # Get widget size and set plot size accordingly
+        width = max(self.size.width - 2, 20)
+        height = max(self.size.height - 2, 6)
+
         # Create mini sparkline
-        plt.plotsize(40, 8)  # Small chart
+        plt.plotsize(width, height)
         days = list(range(len(self.price_history)))
         plt.plot(days, self.price_history, marker="braille", color="green")
         plt.theme("dark")

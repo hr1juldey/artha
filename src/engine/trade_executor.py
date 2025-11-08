@@ -1,7 +1,7 @@
 """Trade execution logic"""
 from dataclasses import dataclass
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, date
 from src.models import Portfolio, Position
 from src.config import COMMISSION_RATE
 from src.utils.xirr_calculator import TransactionType
@@ -58,13 +58,18 @@ class TradeExecutor:
         portfolio: Portfolio,
         symbol: str,
         quantity: int,
-        price: float
+        price: float,
+        transaction_date: date = None
     ) -> TradeResult:
         """Execute buy order with transaction tracking"""
         # Validate inputs first
         valid, message = TradeExecutor.validate_trade_inputs(symbol, quantity, price)
         if not valid:
             return TradeResult(success=False, message=message)
+
+        # Use provided transaction date or default to current date
+        if transaction_date is None:
+            transaction_date = datetime.now().date()
 
         # Calculate costs
         cost = price * quantity
@@ -92,7 +97,7 @@ class TradeExecutor:
 
         # Create transaction record
         transaction = PositionTransaction(
-            date=datetime.now().date(),
+            date=transaction_date,
             quantity=quantity,
             price=price,
             transaction_type=OrderSide.BUY
@@ -106,24 +111,28 @@ class TradeExecutor:
                 existing_pos.current_price = price  # Update current price
             else:
                 # Handle legacy Position model - convert to EnhancedPosition
-                # First, create an EnhancedPosition using the legacy data
+                # WARNING: We cannot accurately determine the original purchase date from legacy Position
+                # This will result in incorrect XIRR calculations. The proper fix is to store
+                # transaction history in the database.
                 enhanced_pos = EnhancedPosition(
                     symbol=symbol,
                     current_price=price,
                 )
-                
+
                 # Create a transaction representing the existing holdings
+                # NOTE: Using current transaction date as fallback since we don't have historical data
+                # This is a known limitation of the legacy Position model
                 existing_transaction = PositionTransaction(
-                    date=datetime.now().date(),  # Use current date for the conversion transaction
+                    date=transaction_date,  # LIMITATION: Unknown actual purchase date
                     quantity=existing_pos.quantity,
                     price=existing_pos.avg_buy_price,
                     transaction_type=OrderSide.BUY
                 )
                 enhanced_pos.add_transaction(existing_transaction)
-                
+
                 # Then add the new transaction
                 enhanced_pos.add_transaction(transaction)
-                
+
                 # Replace the legacy position with the enhanced one
                 portfolio.positions[pos_idx] = enhanced_pos
         else:
@@ -149,13 +158,18 @@ class TradeExecutor:
         portfolio: Portfolio,
         symbol: str,
         quantity: int,
-        price: float
+        price: float,
+        transaction_date: date = None
     ) -> TradeResult:
         """Execute sell order with transaction tracking"""
         # Validate inputs first
         valid, message = TradeExecutor.validate_trade_inputs(symbol, quantity, price)
         if not valid:
             return TradeResult(success=False, message=message)
+
+        # Use provided transaction date or default to current date
+        if transaction_date is None:
+            transaction_date = datetime.now().date()
 
         # Find position
         position = None
@@ -197,7 +211,7 @@ class TradeExecutor:
 
         # Create transaction record
         transaction = PositionTransaction(
-            date=datetime.now().date(),
+            date=transaction_date,
             quantity=quantity,
             price=price,
             transaction_type=OrderSide.SELL
@@ -215,26 +229,28 @@ class TradeExecutor:
             # Handle legacy Position model by converting to EnhancedPosition first
             if hasattr(position, 'quantity'):
                 # Convert legacy position to enhanced position (if it's not already)
+                # WARNING: We cannot accurately determine the original purchase date from legacy Position
                 enhanced_pos = EnhancedPosition(
                     symbol=symbol,
                     current_price=price,
                 )
-                
+
                 # Create a transaction representing the existing holdings
+                # NOTE: Using current transaction date as fallback since we don't have historical data
                 existing_transaction = PositionTransaction(
-                    date=datetime.now().date(),  # Use current date for the conversion transaction
+                    date=transaction_date,  # LIMITATION: Unknown actual purchase date
                     quantity=position.quantity,
                     price=position.avg_buy_price,
                     transaction_type=OrderSide.BUY
                 )
                 enhanced_pos.add_transaction(existing_transaction)
-                
+
                 # Add the sell transaction
                 enhanced_pos.add_transaction(transaction)
-                
+
                 # Replace the legacy position with the enhanced one
                 portfolio.positions[pos_idx] = enhanced_pos
-                
+
                 # If quantity becomes 0, remove the position
                 if enhanced_pos.quantity == 0:
                     portfolio.positions.pop(pos_idx)
