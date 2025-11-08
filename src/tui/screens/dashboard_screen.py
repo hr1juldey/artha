@@ -22,13 +22,16 @@ class DashboardScreen(Screen):
         ("space", "advance_day", "Next Day"),
         ("c", "coach", "AI Coach"),
         ("w", "add_to_watchlist", "Add to Watchlist"),
+        ("plus", "chart_zoom_in", "Chart Zoom In"),
+        ("minus", "chart_zoom_out", "Chart Zoom Out"),
+        ("equal", "chart_reset_zoom", "Chart Reset"),
         ("r", "refresh", "Refresh"),
         ("s", "save", "Save"),
         ("h", "help", "Help"),
         ("q", "quit", "Quit"),
     ]
 
-    # CSS styling
+    # CSS styling - Fixed for proper chart rendering
     CSS = """
     #top-bar {
         height: 5;
@@ -64,24 +67,35 @@ class DashboardScreen(Screen):
     }
 
     #main-chart {
-        height: 20;
+        height: 1fr;
         border: solid $primary;
         background: $surface;
     }
 
-    #portfolio-section {
-        height: 1fr;
-        border: solid $primary;
-        padding: 1;
+    #portfolio-title {
+        height: auto;
+        background: $boost;
+        padding: 0 1;
     }
 
-    #watchlist-section {
+    #portfolio-grid {
+        height: 1fr;
+        border: solid $primary;
+    }
+
+    #watchlist {
         height: 1fr;
         border: solid $accent;
         padding: 1;
     }
 
-    #coach-insights-section {
+    #coach-title {
+        height: auto;
+        background: $boost;
+        padding: 0 1;
+    }
+
+    #coach-insights {
         height: 1fr;
         border: solid $secondary;
         padding: 1;
@@ -133,7 +147,7 @@ class DashboardScreen(Screen):
                 yield Static("📋 Portfolio Positions", id="portfolio-title")
                 yield DataTable(id="portfolio-grid", zebra_stripes=True, cursor_type="row")
 
-            # Right panel: Watchlist and market data
+            # Right panel: Watchlist and AI Coach
             with Vertical(id="right-panel"):
                 yield WatchlistWidget(id="watchlist")
                 yield Static("💡 AI Coach Insights", id="coach-title")
@@ -391,7 +405,10 @@ class DashboardScreen(Screen):
         asyncio.create_task(self.app._save_current_game())
 
     def _refresh_display(self) -> None:
-        """Refresh all displays"""
+        """Refresh all displays with updated values and styling"""
+        # CRITICAL: Always use fresh reference from game_state
+        portfolio = self.game_state.portfolio
+
         # Update portfolio grid
         self._populate_portfolio_grid()
 
@@ -400,19 +417,38 @@ class DashboardScreen(Screen):
         if chart_widget:
             chart_widget.update_portfolio_history(self.game_state.portfolio_history)
 
-        # Update summary cards individually
+        # Update ticker with latest positions
+        ticker_widget = self.query_one("#ticker-bar", LiveTickerWidget)
+        if ticker_widget and hasattr(ticker_widget, 'update_positions'):
+            ticker_widget.update_positions(portfolio.positions)
+
+        # Update summary cards individually with fresh values and CSS classes
         top_bar = self.query_one("#top-bar")
-        for i, child in enumerate(top_bar.children):
+        children_list = list(top_bar.children)
+
+        # Calculate fresh values
+        current_pnl = portfolio.total_pnl
+        current_total_value = portfolio.total_value
+        current_cash = portfolio.cash
+        current_pnl_pct = (current_pnl / portfolio.invested) * 100 if portfolio.invested > 0 else 0.0
+        pnl_class = "positive" if current_pnl > 0 else "negative" if current_pnl < 0 else "neutral"
+
+        for i, child in enumerate(children_list):
             if i == 0:  # Day
                 child.update(self._format_metric("Day", self.game_state.current_day))
+                child.set_classes("metric-card")
             elif i == 1:  # Cash
-                child.update(self._format_metric("Cash", self.portfolio.cash, prefix="₹"))
+                child.update(self._format_metric("Cash", current_cash, prefix="₹"))
+                child.set_classes("metric-card positive")
             elif i == 2:  # Total Value
-                child.update(self._format_metric("Portfolio", self.portfolio.total_value, prefix="₹"))
+                child.update(self._format_metric("Portfolio", current_total_value, prefix="₹"))
+                child.set_classes("metric-card")
             elif i == 3:  # P&L ₹
-                child.update(self._format_metric("P&L", self.portfolio.total_pnl, prefix="₹", show_sign=True))
+                child.update(self._format_metric("P&L", current_pnl, prefix="₹", show_sign=True))
+                child.set_classes(f"metric-card {pnl_class}")
             elif i == 4:  # P&L %
-                child.update(self._format_metric("P&L %", self._calculate_pnl_pct(), suffix="%", show_sign=True))
+                child.update(self._format_metric("P&L %", current_pnl_pct, suffix="%", show_sign=True))
+                child.set_classes(f"metric-card {pnl_class}")
         
     def action_coach(self) -> None:
         """Get portfolio insights from coach with enhanced trend analysis"""
@@ -434,12 +470,10 @@ class DashboardScreen(Screen):
                 total_pnl_percentage=total_pnl_percentage
             )
 
-        # Update coach insights display
+        # Update coach insights display (NO notification - insights show in the panel only)
         coach_insights_widget = self.query_one("#coach-insights-text", Static)
         if coach_insights_widget:
             coach_insights_widget.update(insights)
-        
-        self.app.notify(f"Coach Insights:\n{insights}", timeout=15)
 
     def action_help(self) -> None:
         """Show help screen"""
@@ -449,6 +483,29 @@ class DashboardScreen(Screen):
     def action_refresh(self) -> None:
         """Refresh the display"""
         self._refresh_display()
+
+    def action_chart_zoom_in(self) -> None:
+        """Zoom in on portfolio chart (show fewer days, more detail)"""
+        chart_widget = self.query_one("#main-chart", PortfolioChartWidget)
+        if chart_widget:
+            if chart_widget.zoom_in():
+                self.app.notify("📊 Chart zoomed in", severity="information", timeout=1)
+            else:
+                self.app.notify("⚠ Maximum zoom reached (5 days minimum)", severity="warning", timeout=2)
+
+    def action_chart_zoom_out(self) -> None:
+        """Zoom out on portfolio chart (show more days, less detail)"""
+        chart_widget = self.query_one("#main-chart", PortfolioChartWidget)
+        if chart_widget:
+            chart_widget.zoom_out()
+            self.app.notify("📊 Chart zoomed out", severity="information", timeout=1)
+
+    def action_chart_reset_zoom(self) -> None:
+        """Reset chart zoom to show all data"""
+        chart_widget = self.query_one("#main-chart", PortfolioChartWidget)
+        if chart_widget:
+            chart_widget.reset_zoom()
+            self.app.notify("📊 Chart zoom reset to full view", severity="information", timeout=1)
 
     def action_add_to_watchlist(self) -> None:
         """Add to watchlist action"""

@@ -9,7 +9,7 @@ from typing import List, Dict
 
 
 class PortfolioChartWidget(Static):
-    """Live updating portfolio chart with multiple series"""
+    """Live updating portfolio chart with multiple series and zoom controls"""
 
     portfolio_history: reactive[List[Dict]] = reactive([])
 
@@ -17,6 +17,9 @@ class PortfolioChartWidget(Static):
         super().__init__(*args, **kwargs)
         self.chart_title = title
         self.portfolio_history = portfolio_history or []
+        # Zoom state
+        self.start_idx = 0
+        self.end_idx = None  # None means show all data
 
     def watch_portfolio_history(self, new_history: List[Dict]) -> None:
         """React to portfolio history changes"""
@@ -30,71 +33,131 @@ class PortfolioChartWidget(Static):
         """Handle widget resize events"""
         self.refresh_chart()
 
+    def zoom_in(self) -> bool:
+        """Zoom in - show fewer days (more detail)"""
+        if not self.portfolio_history:
+            return False
+
+        total = len(self.portfolio_history)
+        current_window = (self.end_idx if self.end_idx else total) - self.start_idx
+
+        if current_window <= 5:  # Minimum zoom: 5 days
+            return False
+
+        # Reduce window by 25%
+        quarter = current_window // 4
+        self.start_idx += quarter
+        if self.end_idx:
+            self.end_idx -= quarter
+        else:
+            self.end_idx = total - quarter
+
+        self.refresh_chart()
+        return True
+
+    def zoom_out(self) -> bool:
+        """Zoom out - show more days (less detail)"""
+        if not self.portfolio_history:
+            return False
+
+        total = len(self.portfolio_history)
+        current_window = (self.end_idx if self.end_idx else total) - self.start_idx
+
+        # Expand window by 25%
+        quarter = max(1, current_window // 4)
+
+        new_start = max(0, self.start_idx - quarter)
+        new_end = min(total, (self.end_idx if self.end_idx else total) + quarter)
+
+        # If we've reached full view, set end_idx to None
+        if new_start == 0 and new_end == total:
+            self.start_idx = 0
+            self.end_idx = None
+        else:
+            self.start_idx = new_start
+            self.end_idx = new_end
+
+        self.refresh_chart()
+        return True
+
+    def reset_zoom(self) -> None:
+        """Reset to show all data"""
+        self.start_idx = 0
+        self.end_idx = None
+        self.refresh_chart()
+
     def refresh_chart(self) -> None:
-        """Render chart with multiple series"""
-        plt.clear_data()
-        plt.clear_figure()
+        """Render chart with multiple series - Following Dolphie pattern"""
+        # Critical: Check size before rendering
+        if self.size.width < 2 or self.size.height < 2:
+            self.update(f"Size: {self.size.width}x{self.size.height}")
+            return
 
         if not self.portfolio_history:
             self.update("📈 No data yet. Make trades to see your portfolio grow!")
             return
 
-        # Get widget size and set plot size accordingly
-        # Subtract border/padding (approximately 4 lines for border and labels)
-        width = self.size.width - 4
-        height = self.size.height - 4
+        try:
+            # Setup plot (Dolphie _setup_plot pattern)
+            plt.clf()  # Clear everything
 
-        # Ensure minimum size with more generous constraints
-        min_width = 40  # Minimum width for readable charts
-        min_height = 10  # Minimum height for readable charts
-        
-        if width < min_width:
-            width = min_width
-        if height < min_height:
-            height = min_height
+            # Set canvas colors (Dolphie pattern)
+            plt.canvas_color((10, 14, 27))
+            plt.axes_color((10, 14, 27))
+            plt.ticks_color((133, 159, 213))
 
-        # Also ensure we don't exceed reasonable maximums to prevent distortion
-        max_width = 120  # Maximum width to prevent excessive stretching
-        max_height = 30  # Maximum height to prevent excessive stretching
-        
-        if width > max_width:
-            width = max_width
-        if height > max_height:
-            height = max_height
+            # Set plot size
+            plt.plotsize(self.size.width, self.size.height)
 
-        plt.plotsize(width, height)
+            # Apply zoom window
+            end_idx = self.end_idx if self.end_idx is not None else len(self.portfolio_history)
+            history_window = self.portfolio_history[self.start_idx:end_idx]
 
-        # Extract data
-        days = [entry['day'] for entry in self.portfolio_history]
-        total_values = [entry['total_value'] for entry in self.portfolio_history]
+            if not history_window:
+                self.update("No data in current zoom window")
+                return
 
-        # Add stocks and cash values if available
-        if 'positions_value' in self.portfolio_history[0]:
-            positions_values = [entry['positions_value'] for entry in self.portfolio_history]
-            cash_values = [entry['cash'] for entry in self.portfolio_history]
+            # Extract data (snapshot to lists for thread-safety)
+            days = [entry['day'] for entry in history_window]
+            total_values = [entry['total_value'] for entry in history_window]
 
-            # Plot multiple series
-            plt.plot(days, total_values, label="Total Value", color="green", marker="braille")
-            plt.plot(days, positions_values, label="Stocks Value", color="cyan", marker="braille")
-            plt.plot(days, cash_values, label="Cash", color="yellow", marker="braille")
-        else:
-            # Fallback to single series
-            plt.plot(days, total_values, label="Portfolio Value", color="green", marker="dot")
+            # Add stocks and cash values if available
+            if 'positions_value' in history_window[0]:
+                positions_values = [entry['positions_value'] for entry in history_window]
+                cash_values = [entry['cash'] for entry in history_window]
 
-        # Add benchmark (initial capital as horizontal line)
-        if self.portfolio_history:
-            initial_value = self.portfolio_history[0]['total_value']
-            plt.hline(initial_value, color="white")
+                # Plot multiple series
+                plt.plot(days, total_values, label="Total", color=(84, 239, 174), marker="braille")
+                plt.plot(days, positions_values, label="Stocks", color=(68, 180, 255), marker="braille")
+                plt.plot(days, cash_values, label="Cash", color=(255, 212, 59), marker="braille")
+            else:
+                # Fallback to single series
+                plt.plot(days, total_values, label="Portfolio", color=(84, 239, 174), marker="braille")
 
-        # Styling
-        plt.title(f"{self.chart_title} - Day {days[-1] if days else 0}")
-        plt.xlabel("Day")
-        plt.ylabel("Value (₹)")
-        plt.theme("dark")
+            # Add benchmark (initial capital as horizontal line)
+            if self.portfolio_history:
+                initial_value = self.portfolio_history[0]['total_value']
+                plt.hline(initial_value, color=(200, 200, 200))
 
-        # Build and update
-        chart_text = plt.build()
-        self.update(chart_text)
+            # Finalize plot with title showing zoom info
+            zoom_info = f"Days {days[0]}-{days[-1]}" if len(days) < len(self.portfolio_history) else f"Day {days[-1]}"
+            plt.title(f"{self.chart_title} - {zoom_info}")
+            plt.xlabel("Day")
+            plt.ylabel("Value (₹)")
+
+            # CRITICAL: Build and convert to Rich Text (this is what makes it work!)
+            from rich.text import Text
+            chart_output = plt.build()
+
+            if not chart_output:
+                self.update("ERROR: Empty plot output")
+                return
+
+            self.update(Text.from_ansi(chart_output))
+
+        except Exception as e:
+            # Handle errors gracefully
+            self.update(f"Chart Error: {e}")
 
     def update_portfolio_history(self, portfolio_history: List[Dict]) -> None:
         """Update the widget with new portfolio history"""
@@ -122,37 +185,56 @@ class StockMiniChart(Static):
         self.render_mini_chart()
 
     def render_mini_chart(self) -> None:
-        """Render a compact sparkline"""
-        plt.clear_data()
-        plt.clear_figure()
+        """Render a compact sparkline - Following Dolphie pattern"""
+        # Check size
+        if self.size.width < 2 or self.size.height < 2:
+            self.update(f"{self.symbol}: Size: {self.size.width}x{self.size.height}")
+            return
 
         if len(self.price_history) < 2:
             self.update(f"{self.symbol}: No history")
             return
 
-        # Get widget size and set plot size accordingly
-        width = max(self.size.width - 2, 20)
-        height = max(self.size.height - 2, 6)
+        try:
+            # Setup plot (Dolphie pattern)
+            plt.clf()
 
-        # Create mini sparkline
-        plt.plotsize(width, height)
-        days = list(range(len(self.price_history)))
-        plt.plot(days, self.price_history, marker="braille", color="green")
-        plt.theme("dark")
+            # Set canvas colors
+            plt.canvas_color((10, 14, 27))
+            plt.axes_color((10, 14, 27))
+            plt.ticks_color((133, 159, 213))
 
-        # No labels for mini chart
-        plt.xticks([])
-        plt.yticks([])
+            # Create mini sparkline
+            plt.plotsize(self.size.width, self.size.height)
+            days = list(range(len(self.price_history)))
 
-        chart_text = plt.build()
+            # Determine color based on price change
+            price_change = self.price_history[-1] - self.price_history[0]
+            plot_color = (84, 239, 174) if price_change >= 0 else (255, 85, 85)
 
-        # Add symbol and price change
-        price_change = self.price_history[-1] - self.price_history[0]
-        pct_change = (price_change / self.price_history[0]) * 100 if self.price_history[0] != 0 else 0
-        color = "green" if price_change >= 0 else "red"
+            plt.plot(days, self.price_history, marker="braille", color=plot_color)
 
-        output = f"[bold]{self.symbol}[/] [{color}]{pct_change:+.2f}%[/]\n{chart_text}"
-        self.update(output)
+            # No labels for mini chart
+            plt.xticks([])
+            plt.yticks([])
+
+            # CRITICAL: Build and convert to Rich Text
+            from rich.text import Text
+            chart_output = plt.build()
+
+            if not chart_output:
+                self.update(f"{self.symbol}: Empty")
+                return
+
+            # Add symbol and price change
+            pct_change = (price_change / self.price_history[0]) * 100 if self.price_history[0] != 0 else 0
+            color = "green" if price_change >= 0 else "red"
+
+            output = f"[bold]{self.symbol}[/] [{color}]{pct_change:+.2f}%[/]\n"
+            self.update(output + Text.from_ansi(chart_output))
+
+        except Exception as e:
+            self.update(f"{self.symbol}: Error: {e}")
 
 
 class EnhancedPortfolioGrid(Static):

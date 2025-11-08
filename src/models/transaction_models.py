@@ -23,22 +23,76 @@ class PositionTransaction:
 @dataclass
 class EnhancedPosition:
     """Enhanced position that tracks individual transactions for proper XIRR calculations"""
-    
+
     symbol: str
-    current_price: float
+    _current_price: float = field(default=0.0, init=False)  # Private field
     transactions: List[PositionTransaction] = field(default_factory=list)
-    
-    # These properties are calculated from transactions
-    quantity: int = field(init=False)
-    avg_buy_price: float = field(init=False)
-    cost_basis: float = field(init=False)
-    market_value: float = field(init=False)
-    unrealized_pnl: float = field(init=False)
-    unrealized_pnl_pct: float = field(init=False)
-    
-    def __post_init__(self):
-        """Calculate initial values after initialization"""
+
+    # Cached values calculated from transactions
+    _quantity: int = field(default=0, init=False)
+    _avg_buy_price: float = field(default=0.0, init=False)
+    _cost_basis: float = field(default=0.0, init=False)
+
+    def __init__(self, symbol: str, current_price: float, transactions: List[PositionTransaction] = None):
+        """Initialize position with symbol and current price"""
+        self.symbol = symbol
+        self._current_price = current_price
+        self.transactions = transactions if transactions is not None else []
         self._recalculate_position()
+
+    @property
+    def current_price(self) -> float:
+        """Get current price"""
+        return self._current_price
+
+    @current_price.setter
+    def current_price(self, value: float):
+        """Set current price and recalculate dependent values"""
+        self._current_price = value
+        # No need to recalculate quantity/avg_buy_price/cost_basis as they don't depend on current_price
+
+    @property
+    def quantity(self) -> int:
+        """Get current quantity"""
+        return self._quantity
+
+    @property
+    def avg_buy_price(self) -> float:
+        """Get average buy price"""
+        return self._avg_buy_price
+
+    @property
+    def cost_basis(self) -> float:
+        """Get cost basis"""
+        return self._cost_basis
+
+    @property
+    def market_value(self) -> float:
+        """Calculate market value dynamically based on current price"""
+        return abs(self._quantity) * self._current_price
+
+    @property
+    def unrealized_pnl(self) -> float:
+        """Calculate unrealized P&L dynamically"""
+        if self._quantity > 0:
+            # Calculate proportional cost basis for remaining shares
+            total_bought_quantity = sum(t.quantity for t in self.transactions if t.transaction_type == TransactionType.BUY)
+            if total_bought_quantity > 0:
+                avg_cost_per_share = self._cost_basis / total_bought_quantity
+                remaining_cost_basis = avg_cost_per_share * self._quantity
+                return self.market_value - remaining_cost_basis
+        return 0.0
+
+    @property
+    def unrealized_pnl_pct(self) -> float:
+        """Calculate unrealized P&L percentage dynamically"""
+        if self._cost_basis > 0:
+            return (self.unrealized_pnl / self._cost_basis) * 100
+        return 0.0
+
+    def __post_init__(self):
+        """This won't be called since we override __init__"""
+        pass
     
     def add_transaction(self, transaction: PositionTransaction) -> None:
         """Add a new transaction to the position"""
@@ -50,41 +104,23 @@ class EnhancedPosition:
         # Calculate quantity by summing all transactions
         total_quantity = 0
         total_cost_basis = 0
-        
+
         for trans in self.transactions:
             if trans.transaction_type == TransactionType.BUY:
                 total_quantity += trans.quantity  # quantity for buys
                 total_cost_basis += (trans.quantity * trans.price)  # quantity * price = cost
             else:  # SELL
                 total_quantity -= trans.quantity  # quantity for sells
-        
-        self.quantity = total_quantity
-        self.cost_basis = total_cost_basis  # Total cost basis from all BUY transactions
-        
+
+        self._quantity = total_quantity
+        self._cost_basis = total_cost_basis  # Total cost basis from all BUY transactions
+
         # Calculate avg buy price based on total bought quantity
         total_bought_quantity = sum(trans.quantity for trans in self.transactions if trans.transaction_type == TransactionType.BUY)
-        self.avg_buy_price = self.cost_basis / total_bought_quantity if total_bought_quantity > 0 else 0
-        
-        # Calculate market value for current holdings
-        self.market_value = abs(total_quantity) * self.current_price  # Use absolute value of quantity to prevent negative MV
-        
-        # Calculate unrealized P&L 
-        # If we still hold shares, P&L is based on current value vs original cost of remaining shares
-        # Using weighted average to determine remaining cost basis 
-        if total_quantity > 0 and total_bought_quantity > 0:
-            # If we still have shares, calculate proportional cost basis
-            avg_cost_per_share = self.cost_basis / total_bought_quantity
-            remaining_cost_basis = avg_cost_per_share * total_quantity
-            self.unrealized_pnl = self.market_value - remaining_cost_basis
-        elif total_quantity < 0:
-            # If we have negative quantity (sold more than owned), this is unusual but possible in some scenarios
-            # For our simulator, we'll just show 0 P&L
-            self.unrealized_pnl = 0
-        else:
-            # Quantity is 0, so no P&L
-            self.unrealized_pnl = 0
-            
-        self.unrealized_pnl_pct = (self.unrealized_pnl / self.cost_basis * 100) if self.cost_basis > 0 else 0
+        self._avg_buy_price = self._cost_basis / total_bought_quantity if total_bought_quantity > 0 else 0
+
+        # Note: market_value, unrealized_pnl, and unrealized_pnl_pct are now @property methods
+        # that calculate dynamically based on current_price
     
     def calculate_xirr(self, current_date: Union[datetime, date] = None) -> float:
         """Calculate XIRR for this position"""
