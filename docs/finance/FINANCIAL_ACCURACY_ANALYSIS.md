@@ -11,6 +11,7 @@
 The Artha trading system has **7 critical financial inaccuracies** that would prevent users from making realistic long-term profits, even with good stock picking. The system significantly **underestimates transaction costs** and provides **inflated P&L figures** that don't reflect true profitability.
 
 ### Severity Ranking
+
 1. **CRITICAL**: Missing 80% of transaction costs (STT, Exchange, GST, SEBI)
 2. **CRITICAL**: Commission not included in cost basis (inflates P&L)
 3. **CRITICAL**: No realized P&L tracking (can't measure actual profits)
@@ -24,6 +25,7 @@ The Artha trading system has **7 critical financial inaccuracies** that would pr
 ## Issue 1: Missing 80% of Transaction Costs ⚠️ CRITICAL
 
 ### Current Implementation
+
 File: `/home/riju279/Documents/Code/Zonko/Artha/artha/src/engine/trade_executor.py` (lines 51-54)
 
 ```python
@@ -77,11 +79,13 @@ For a **₹1,00,000 SELL order**:
 ### Real-World Impact
 
 **Example: Round-trip trade (buy + sell) of ₹1,00,000**
+
 - Current system cost: ₹40 (₹20 + ₹20)
 - Actual cost: ₹155.06 (₹27.53 + ₹127.53)
 - **Missing: ₹115.06 (287% underestimation!)**
 
 **Why users can't profit long-term:**
+
 - Every trade appears 287% cheaper than reality
 - Break-even calculations are completely wrong
 - Users think they need +0.04% to break even, but actually need +0.155%
@@ -143,6 +147,7 @@ def calculate_costs(price: float, quantity: int, side: OrderSide) -> TradeCosts:
 ### Current Implementation
 
 When executing a buy:
+
 ```python
 # File: src/engine/trade_executor.py, lines 74-77
 cost = price * quantity
@@ -154,6 +159,7 @@ portfolio.cash -= total_cost  # ✓ Cash correctly deducted
 ```
 
 But when creating/updating position:
+
 ```python
 # Lines 99-104
 transaction = PositionTransaction(
@@ -167,17 +173,20 @@ transaction = PositionTransaction(
 ### The Problem
 
 **Example:**
+
 - Buy 100 shares @ ₹100.00
 - Share cost: ₹10,000
 - Commission: ₹3
 - **Total paid from cash: ₹10,003**
 
 **Position tracking shows:**
+
 - Quantity: 100
 - Avg buy price: ₹100.00 (WRONG - should be ₹100.03)
 - Cost basis: ₹10,000 (WRONG - should be ₹10,003)
 
 **Impact:**
+
 - If current price = ₹100.00, position shows P&L = ₹0
 - But if you sell, you get ₹9,997 (after commission)
 - **Actual P&L = -₹6**, but position shows ₹0
@@ -186,6 +195,7 @@ transaction = PositionTransaction(
 ### Real-World Impact
 
 **Scenario: Buy stock at ₹100, hold for 1 year**
+
 - Total paid: ₹10,003
 - To break even, need to sell at: ₹100.06 (accounting for sell commission)
 - Position shows break-even at: ₹100.00
@@ -242,6 +252,7 @@ def true_unrealized_pnl(self) -> float:
 File: `/home/riju279/Documents/Code/Zonko/Artha/artha/src/models/transaction_models.py`
 
 The `EnhancedPosition` class tracks:
+
 - ✓ Quantity (remaining shares)
 - ✓ Unrealized P&L (for remaining shares)
 - ✓ Transaction history
@@ -250,6 +261,7 @@ The `EnhancedPosition` class tracks:
 ### The Problem
 
 **Scenario:**
+
 ```python
 # Buy 100 shares @ ₹100
 # Sell 30 shares @ ₹120
@@ -257,10 +269,12 @@ The `EnhancedPosition` class tracks:
 ```
 
 **What position shows:**
+
 - Quantity: 70
 - Unrealized P&L: ₹700 (70 shares × ₹10 gain)
 
 **What's missing:**
+
 - Realized P&L from selling 30 @ ₹120: **₹600 (30 × ₹20 gain)**
 - **This ₹600 profit is completely invisible!**
 
@@ -277,6 +291,7 @@ def total_pnl(self) -> float:
 **This only counts UNREALIZED P&L!**
 
 **Missing:**
+
 1. Realized P&L from partial sales
 2. Realized P&L from fully closed positions
 3. Total P&L for closed trades (can't calculate win rate)
@@ -284,6 +299,7 @@ def total_pnl(self) -> float:
 ### Real-World Impact
 
 **Example trading history:**
+
 - Buy 100 RELIANCE @ ₹2000 = ₹2,00,000
 - Sell 50 RELIANCE @ ₹2500 = ₹1,25,000 (Realized gain: ₹25,000)
 - Buy 100 INFY @ ₹1500 = ₹1,50,000
@@ -291,10 +307,12 @@ def total_pnl(self) -> float:
 - Current: Hold 50 RELIANCE @ ₹2400 (Unrealized gain: ₹20,000)
 
 **What portfolio shows:**
+
 - Total P&L: ₹20,000 (only unrealized)
 - Return: 20,000 / 350,000 = 5.7%
 
 **Reality:**
+
 - Realized P&L: ₹25,000 - ₹10,000 = ₹15,000
 - Unrealized P&L: ₹20,000
 - **Total P&L: ₹35,000**
@@ -390,6 +408,7 @@ existing_transaction = PositionTransaction(
 ```
 
 **Impact:**
+
 - All transactions use CURRENT date as purchase date
 - XIRR calculation is completely wrong (can't calculate time-weighted returns)
 - After restart, transaction history is lost
@@ -398,6 +417,7 @@ existing_transaction = PositionTransaction(
 ### Real-World Impact
 
 **Example:**
+
 1. Day 1: Buy 100 RELIANCE @ ₹2000 (date: 2024-01-01)
 2. Day 30: Buy 50 RELIANCE @ ₹2200 (date: 2024-01-30)
 3. Day 60: Sell 30 RELIANCE @ ₹2400 (date: 2024-03-01)
@@ -487,6 +507,7 @@ def total_pnl(self) -> float:
 ### The Problem
 
 When you:
+
 1. Buy 100 shares @ ₹100
 2. Sell all 100 shares @ ₹120
 3. **Position is deleted** (quantity = 0)
@@ -536,6 +557,7 @@ def total_pnl(self) -> float:
 ### Current Implementation
 
 Commissions are:
+
 - ✓ Calculated per trade
 - ✓ Deducted from cash
 - ❌ **Not tracked cumulatively**
@@ -543,6 +565,7 @@ Commissions are:
 ### The Problem
 
 Users can't see:
+
 - Total commissions paid to date
 - Commission as % of portfolio value
 - Whether they're overtrading
@@ -551,6 +574,7 @@ Users can't see:
 ### Example
 
 After 50 trades:
+
 - Total commission: ₹1,000
 - Portfolio: ₹10,00,000
 - Commission drag: 0.1%
@@ -578,6 +602,7 @@ class GameState:
 ```
 
 Display in UI:
+
 ```
 Total Costs Paid: ₹1,234.56
   ├─ Brokerage: ₹456.00
@@ -595,11 +620,13 @@ Cost as % of Capital: 0.123%
 File: `/home/riju279/Documents/Code/Zonko/Artha/artha/docs/artha_hld.md`
 
 **Line 389:**
+
 ```
 Brokerage: 0.03% (0.0003) or ₹20 max per order
 ```
 
 **Lines 397-403:**
+
 ```
 Example (₹1L Buy Order):
   Order Value: ₹100,000
@@ -617,6 +644,7 @@ Example (₹1L Buy Order):
 ### Current Implementation
 
 Code correctly implements ₹20 cap:
+
 ```python
 return min(commission, 20.0)  # ✓ Correct
 ```
@@ -667,11 +695,13 @@ Example (₹1L Buy Order):
 ### Example: 1-Year Trading Results
 
 **User's view:**
+
 - Trades: 100 round-trips
 - Portfolio shows: +₹10,000 profit (+10%)
 - Think they're beating the market
 
 **Reality:**
+
 - Missing transaction costs: ₹11,506
 - Commission not in cost basis: ~₹2,000 overstatement
 - Missing realized P&L: Unknown (not tracked)
@@ -682,21 +712,25 @@ Example (₹1L Buy Order):
 ## Recommended Fix Priority
 
 ### Phase 1: CRITICAL (Implement Now)
+
 1. ✅ **Add full transaction costs** (STT, Exchange, GST, SEBI)
 2. ✅ **Include commission in cost basis** (fix P&L calculation)
 3. ✅ **Add realized P&L tracking** (show true profits)
 
 ### Phase 2: HIGH (Next Sprint)
+
 4. ✅ **Add transactions table** (persist history for XIRR)
 5. ✅ **Fix portfolio total_pnl** (include realized gains)
 
 ### Phase 3: MEDIUM (Polish)
+
 6. ✅ **Add total commission tracking** (visibility into costs)
 7. ✅ **Fix HLD documentation** (consistency)
 
 ### Testing Requirements
 
 After fixes, verify:
+
 - ✅ Buy-sell at same price results in loss equal to 2× total costs
 - ✅ Position P&L matches cash flow exactly
 - ✅ Realized + unrealized P&L = cash - initial_capital + positions_value
@@ -734,6 +768,7 @@ After fixes, verify:
 ### Configuration Updates
 
 6. **`/home/riju279/Documents/Code/Zonko/Artha/artha/src/config.py`**
+
    ```python
    # Add complete cost structure
    BROKERAGE_RATE = 0.0003  # 0.03%
@@ -753,12 +788,14 @@ The Artha trading system has **fundamental financial calculation errors** that m
 **All 7 issues stem from incomplete implementation of the HLD specification**, particularly around transaction costs and P&L tracking. The fixes are well-defined and testable.
 
 **Estimated development time:**
+
 - Phase 1 (Critical): 8-12 hours
 - Phase 2 (High): 4-6 hours
 - Phase 3 (Medium): 2-4 hours
 - **Total: 14-22 hours** for production-ready financial accuracy
 
 **Business impact if not fixed:**
+
 - Users will overtrade (costs seem low)
 - Users will lose money despite thinking they're profitable
 - Educational value destroyed (learning wrong lessons)

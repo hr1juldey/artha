@@ -19,6 +19,13 @@ class TradeResult:
     quantity: int = 0
     total_cost: float = 0.0
     commission: float = 0.0
+    realized_pnl: float = 0.0  # Realized P&L (only for sell orders)
+    cost_breakdown: dict = None  # Detailed cost breakdown for transparency
+
+    def __post_init__(self):
+        """Initialize cost_breakdown as empty dict if None"""
+        if self.cost_breakdown is None:
+            self.cost_breakdown = {}
 
 class TradeExecutor:
     """Executes buy/sell orders"""
@@ -49,9 +56,64 @@ class TradeExecutor:
 
     @staticmethod
     def calculate_commission(amount: float) -> float:
-        """Calculate commission (0.03% or ₹20 max)"""
+        """Calculate commission (0.03% or ₹20 max) - LEGACY METHOD"""
         commission = amount * COMMISSION_RATE
         return min(commission, 20.0)
+
+    @staticmethod
+    def calculate_all_costs(
+        trade_value: float,
+        is_buy: bool = True
+    ) -> tuple[float, dict]:
+        """
+        Calculate ALL transaction costs for Indian stock markets
+
+        Returns: (total_cost, cost_breakdown_dict)
+
+        Includes:
+        - Brokerage (0.03%)
+        - STT (0.1% on sell only)
+        - Exchange charges (0.00325%)
+        - GST (18% on brokerage + exchange)
+        - SEBI fees (₹10 per crore)
+        """
+        from src.config import (
+            BROKERAGE_RATE, STT_RATE_BUY, STT_RATE_SELL,
+            EXCHANGE_CHARGES_RATE, GST_RATE, SEBI_FEES_RATE
+        )
+
+        # 1. Brokerage
+        brokerage = trade_value * BROKERAGE_RATE
+        brokerage = min(brokerage, 20.0)  # Cap at ₹20
+
+        # 2. STT (Securities Transaction Tax)
+        stt_rate = STT_RATE_BUY if is_buy else STT_RATE_SELL
+        stt = trade_value * stt_rate
+
+        # 3. Exchange transaction charges
+        exchange_charges = trade_value * EXCHANGE_CHARGES_RATE
+
+        # 4. SEBI fees
+        sebi_fees = trade_value * SEBI_FEES_RATE
+
+        # 5. GST (on brokerage + exchange charges)
+        taxable_amount = brokerage + exchange_charges
+        gst = taxable_amount * GST_RATE
+
+        # Total
+        total = brokerage + stt + exchange_charges + sebi_fees + gst
+
+        # Breakdown for transparency
+        breakdown = {
+            'brokerage': round(brokerage, 2),
+            'stt': round(stt, 2),
+            'exchange_charges': round(exchange_charges, 2),
+            'gst': round(gst, 2),
+            'sebi_fees': round(sebi_fees, 2),
+            'total': round(total, 2)
+        }
+
+        return total, breakdown
 
     @staticmethod
     def execute_buy(
@@ -71,16 +133,17 @@ class TradeExecutor:
         if transaction_date is None:
             transaction_date = datetime.now().date()
 
-        # Calculate costs
-        cost = price * quantity
-        commission = TradeExecutor.calculate_commission(cost)
-        total_cost = cost + commission
+        # Calculate all costs (brokerage, STT, exchange, GST, SEBI)
+        trade_value = price * quantity
+        commission, cost_breakdown = TradeExecutor.calculate_all_costs(trade_value, is_buy=True)
+        total_cost = trade_value + commission
 
         # Check if enough cash
         if portfolio.cash < total_cost:
             return TradeResult(
                 success=False,
-                message=f"Insufficient funds. Need ₹{total_cost:,.2f}, have ₹{portfolio.cash:,.2f}"
+                message=f"Insufficient funds. Need ₹{total_cost:,.2f}, have ₹{portfolio.cash:,.2f}",
+                cost_breakdown=cost_breakdown
             )
 
         # Deduct cash
@@ -100,7 +163,8 @@ class TradeExecutor:
             date=transaction_date,
             quantity=quantity,
             price=price,
-            transaction_type=OrderSide.BUY
+            transaction_type=OrderSide.BUY,
+            commission=commission  # Include ALL transaction costs
         )
 
         if existing_pos:
@@ -150,7 +214,8 @@ class TradeExecutor:
             executed_price=price,
             quantity=quantity,
             total_cost=total_cost,
-            commission=commission
+            commission=commission,
+            cost_breakdown=cost_breakdown
         )
 
     @staticmethod
@@ -204,17 +269,18 @@ class TradeExecutor:
                 message=f"Insufficient quantity. Have {available_quantity}, trying to sell {quantity}"
             )
 
-        # Calculate proceeds
-        proceeds = price * quantity
-        commission = TradeExecutor.calculate_commission(proceeds)
-        net_proceeds = proceeds - commission
+        # Calculate all costs (includes STT on sell which is the biggest cost)
+        trade_value = price * quantity
+        commission, cost_breakdown = TradeExecutor.calculate_all_costs(trade_value, is_buy=False)
+        net_proceeds = trade_value - commission
 
         # Create transaction record
         transaction = PositionTransaction(
             date=transaction_date,
             quantity=quantity,
             price=price,
-            transaction_type=OrderSide.SELL
+            transaction_type=OrderSide.SELL,
+            commission=commission  # Include ALL transaction costs
         )
 
         if hasattr(position, 'add_transaction'):
@@ -262,6 +328,20 @@ class TradeExecutor:
                 else:
                     position.current_price = price
 
+        # Calculate realized P&L
+        # Cost basis of sold shares = avg_buy_price * quantity
+        # (avg_buy_price already includes commission in cost basis calculation)
+        if hasattr(position, 'avg_buy_price'):
+            cost_basis_sold = position.avg_buy_price * quantity
+        else:
+            # Fallback for legacy positions (shouldn't happen)
+            cost_basis_sold = 0
+
+        realized_pnl = trade_value - commission - cost_basis_sold
+
+        # Update portfolio's cumulative realized P&L
+        portfolio.realized_pnl += realized_pnl
+
         # Add cash
         portfolio.cash += net_proceeds
 
@@ -271,5 +351,7 @@ class TradeExecutor:
             executed_price=price,
             quantity=quantity,
             total_cost=net_proceeds,
-            commission=commission
+            commission=commission,
+            realized_pnl=realized_pnl,
+            cost_breakdown=cost_breakdown
         )

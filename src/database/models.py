@@ -33,11 +33,13 @@ class Game(Base):
     current_day: Mapped[int] = mapped_column(Integer, default=0)
     total_days: Mapped[int] = mapped_column(Integer, default=30)
     status: Mapped[str] = mapped_column(String(20), default="active")
+    realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)  # Cumulative P&L from closed trades
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="games")
     positions: Mapped[List["Position"]] = relationship("Position", back_populates="game", cascade="all, delete-orphan")
+    transactions: Mapped[List["Transaction"]] = relationship("Transaction", back_populates="game", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Game(id={self.id}, name='{self.name}', day={self.current_day})>"
@@ -59,3 +61,23 @@ class Position(Base):
 
     def __repr__(self):
         return f"<Position(symbol='{self.symbol}', qty={self.quantity})>"
+
+class Transaction(Base):
+    """Transaction model for tracking individual buy/sell transactions"""
+    __tablename__ = "transactions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    game_id: Mapped[int] = mapped_column(Integer, ForeignKey("games.id"), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(20), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    price: Mapped[float] = mapped_column(Float, nullable=False)
+    transaction_type: Mapped[str] = mapped_column(String(10), nullable=False)  # 'BUY' or 'SELL'
+    transaction_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    commission: Mapped[float] = mapped_column(Float, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    # Relationships
+    game: Mapped["Game"] = relationship("Game", back_populates="transactions")
+
+    def __repr__(self):
+        return f"<Transaction({self.transaction_type} {self.quantity} {self.symbol} @ ₹{self.price})>"

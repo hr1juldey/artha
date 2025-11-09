@@ -33,6 +33,7 @@ class Portfolio:
     """User's portfolio"""
     cash: float
     positions: List[Union[Position, EnhancedPosition]] = field(default_factory=list)
+    realized_pnl: float = 0.0  # Cumulative P&L from closed positions
 
     @property
     def positions_value(self) -> float:
@@ -48,7 +49,9 @@ class Portfolio:
 
     @property
     def total_pnl(self) -> float:
-        return sum(self._get_unrealized_pnl(p) for p in self.positions)
+        """Total P&L = Realized (from closed trades) + Unrealized (from open positions)"""
+        unrealized = sum(self._get_unrealized_pnl(p) for p in self.positions)
+        return self.realized_pnl + unrealized
 
     def _get_market_value(self, position: Union[Position, EnhancedPosition]) -> float:
         """Get market value of position regardless of type"""

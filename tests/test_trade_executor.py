@@ -106,16 +106,16 @@ def test_validate_trade_inputs():
 def test_buy_exact_cash_match():
     """Test buying when cost exactly matches available cash"""
     # Cost = 10 shares * 1000 = 10,000
-    # Commission = 10,000 * 0.0003 = 3
-    # Total = 10,003
-    portfolio = Portfolio(cash=10003.0)
+    # All transaction costs ≈ 3.93 (brokerage + exchange + GST + SEBI)
+    # Total = 10,003.93
+    portfolio = Portfolio(cash=10004.0)
 
     result = TradeExecutor.execute_buy(
         portfolio, "TEST", 10, 1000.0
     )
 
     assert result.success
-    assert abs(portfolio.cash) < 0.01  # Should be approximately 0
+    assert portfolio.cash < 1.0  # Should be nearly 0 (less than ₹1 remaining)
 
 
 def test_position_averaging_up():
@@ -133,8 +133,12 @@ def test_position_averaging_up():
     position = portfolio.positions[0]
     assert position.quantity == 150
 
-    # Expected average: (100*100 + 50*120) / 150 = 106.67
-    expected_avg = (100 * 100 + 50 * 120) / 150
+    # Expected average: (100*100 + 0 + 50*120 + commission) / 150
+    # Commission on buy: 50*120*0.0003 = 1.8
+    # Total cost basis: 10,000 + 6,000 + 1.8 = 16,001.8
+    # Avg: 16,001.8 / 150 = 106.6787
+    commission = result.commission  # Get actual commission from result
+    expected_avg = (100 * 100 + 50 * 120 + commission) / 150
     assert abs(position.avg_buy_price - expected_avg) < 0.01
 
 
@@ -153,6 +157,10 @@ def test_position_averaging_down():
     position = portfolio.positions[0]
     assert position.quantity == 200
 
-    # Expected average: (100*120 + 100*100) / 200 = 110
-    expected_avg = (100 * 120 + 100 * 100) / 200
+    # Expected average: (100*120 + 0 + 100*100 + commission) / 200
+    # Commission on buy: 100*100*0.0003 = 3
+    # Total cost basis: 12,000 + 10,000 + 3 = 22,003
+    # Avg: 22,003 / 200 = 110.015
+    commission = result.commission
+    expected_avg = (100 * 120 + 100 * 100 + commission) / 200
     assert abs(position.avg_buy_price - expected_avg) < 0.01

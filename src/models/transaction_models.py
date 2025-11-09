@@ -9,7 +9,7 @@ from datetime import datetime, date
 from typing import List, Union
 from enum import Enum
 from src.utils.xirr_calculator import TransactionType, calculate_position_xirr
-
+from src.database.models import Transaction
 
 @dataclass
 class PositionTransaction:
@@ -18,6 +18,7 @@ class PositionTransaction:
     quantity: int  # Number of shares
     price: float   # Price per share
     transaction_type: TransactionType
+    commission: float = 0.0  # Transaction cost (default 0 for backward compatibility)
 
 
 @dataclass
@@ -108,7 +109,9 @@ class EnhancedPosition:
         for trans in self.transactions:
             if trans.transaction_type == TransactionType.BUY:
                 total_quantity += trans.quantity  # quantity for buys
-                total_cost_basis += (trans.quantity * trans.price)  # quantity * price = cost
+                # FIX: Include commission in cost basis (with backward compatibility)
+                commission = trans.commission if hasattr(trans, 'commission') else 0.0
+                total_cost_basis += (trans.quantity * trans.price + commission)
             else:  # SELL
                 total_quantity -= trans.quantity  # quantity for sells
 

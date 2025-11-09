@@ -1,10 +1,13 @@
 """Data Access Objects for database operations"""
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from typing import List, Optional
-from src.database.models import User, Game, Position
+from typing import List, Optional, Union
+from datetime import datetime
+from src.database.models import User, Game, Position, Transaction
 from src.models import GameState, Portfolio, Position as PositionModel
+from src.models.transaction_models import EnhancedPosition, PositionTransaction
+from src.utils.xirr_calculator import TransactionType
 
 class GameDAO:
     """Data Access Object for Game operations"""
@@ -32,10 +35,11 @@ class GameDAO:
 
     @staticmethod
     async def get_game(session: AsyncSession, game_id: int) -> Optional[Game]:
-        """Get game by ID with positions loaded"""
+        """Get game by ID with positions and transactions loaded"""
         result = await session.execute(
             select(Game)
             .options(selectinload(Game.positions))
+            .options(selectinload(Game.transactions))
             .where(Game.id == game_id)
         )
         return result.scalar_one_or_none()
@@ -56,6 +60,7 @@ class GameDAO:
         result = await session.execute(
             select(Game)
             .options(selectinload(Game.positions))
+            .options(selectinload(Game.transactions))
             .where(Game.user_id == user_id)
             .order_by(Game.created_at.desc())
             .limit(1)
@@ -63,19 +68,45 @@ class GameDAO:
         return result.scalar_one_or_none()
 
     @staticmethod
+    async def save_full_game_state(
+        session: AsyncSession,
+        game_id: int,
+        portfolio: Portfolio,
+        current_day: int
+    ) -> None:
+        """Save complete game state: cash, realized_pnl, positions, and transactions"""
+        # Update game state
+        result = await session.execute(
+            select(Game).where(Game.id == game_id)
+        )
+        game = result.scalar_one()
+        game.current_cash = portfolio.cash
+        game.current_day = current_day
+        game.realized_pnl = portfolio.realized_pnl
+        await session.commit()
+
+        # Save positions
+        await GameDAO.save_positions(session, game_id, portfolio.positions)
+
+        # Save transactions
+        await GameDAO.save_transactions(session, game_id, portfolio.positions)
+
+    @staticmethod
     async def save_game_state(
         session: AsyncSession,
         game_id: int,
         cash: float,
-        current_day: int
+        current_day: int,
+        realized_pnl: float = 0.0
     ) -> None:
-        """Update game state"""
+        """Update game state including realized P&L (legacy method - prefer save_full_game_state)"""
         result = await session.execute(
             select(Game).where(Game.id == game_id)
         )
         game = result.scalar_one()
         game.current_cash = cash
         game.current_day = current_day
+        game.realized_pnl = realized_pnl
         await session.commit()
 
     @staticmethod
@@ -125,21 +156,103 @@ class GameDAO:
             raise e
 
     @staticmethod
+    async def save_transactions(
+        session: AsyncSession,
+        game_id: int,
+        positions: List[Union[PositionModel, EnhancedPosition]]
+    ) -> None:
+        """Save transaction history for all positions"""
+
+        # Step 1: Delete existing transactions for this game
+        await session.execute(
+            delete(Transaction).where(Transaction.game_id == game_id)
+        )
+
+        # Step 2: Insert all transactions from EnhancedPosition objects
+        for pos in positions:
+            # Only EnhancedPosition has transactions
+            if hasattr(pos, 'transactions') and hasattr(pos, 'symbol'):
+                for trans in pos.transactions:
+                    # Convert transaction_type enum to string
+                    trans_type = trans.transaction_type.value if hasattr(trans.transaction_type, 'value') else str(trans.transaction_type)
+
+                    # Convert date to datetime if needed
+                    if hasattr(trans.date, 'date'):
+                        # It's already a datetime
+                        trans_date = trans.date
+                    else:
+                        # It's a date, convert to datetime
+                        trans_date = datetime.combine(trans.date, datetime.min.time())
+
+                    db_trans = Transaction(
+                        game_id=game_id,
+                        symbol=pos.symbol,
+                        quantity=trans.quantity,
+                        price=trans.price,
+                        transaction_type=trans_type,
+                        transaction_date=trans_date,
+                        commission=trans.commission if hasattr(trans, 'commission') else 0.0
+                    )
+                    session.add(db_trans)
+
+        # Step 3: Commit all transactions
+        try:
+            await session.commit()
+        except Exception as e:
+            await session.rollback()
+            raise e
+
+    @staticmethod
     def db_game_to_game_state(game: Game, user: User) -> GameState:
-        """Convert DB Game to GameState model"""
-        positions = [
-            PositionModel(
-                symbol=pos.symbol,
-                quantity=pos.quantity,
-                avg_buy_price=pos.avg_buy_price,
-                current_price=pos.current_price or pos.avg_buy_price
+        """Convert DB Game to GameState model with transaction history"""
+
+        # Group transactions by symbol
+        transactions_by_symbol = {}
+        for db_trans in game.transactions:
+            if db_trans.symbol not in transactions_by_symbol:
+                transactions_by_symbol[db_trans.symbol] = []
+
+            # Convert DB transaction to PositionTransaction
+            trans_type = TransactionType.BUY if db_trans.transaction_type == "BUY" else TransactionType.SELL
+            trans_date = db_trans.transaction_date.date() if hasattr(db_trans.transaction_date, 'date') else db_trans.transaction_date
+
+            pos_trans = PositionTransaction(
+                date=trans_date,
+                quantity=db_trans.quantity,
+                price=db_trans.price,
+                transaction_type=trans_type,
+                commission=db_trans.commission
             )
-            for pos in game.positions
-        ]
+            transactions_by_symbol[db_trans.symbol].append(pos_trans)
+
+        # Build positions with transaction history
+        positions = []
+        for pos in game.positions:
+            # Get current price from DB position or use avg_buy_price as fallback
+            current_price = pos.current_price or pos.avg_buy_price
+
+            # If we have transaction history for this symbol, create EnhancedPosition
+            if pos.symbol in transactions_by_symbol:
+                enhanced_pos = EnhancedPosition(
+                    symbol=pos.symbol,
+                    current_price=current_price,
+                    transactions=transactions_by_symbol[pos.symbol]
+                )
+                positions.append(enhanced_pos)
+            else:
+                # Fallback to legacy Position if no transaction history
+                legacy_pos = PositionModel(
+                    symbol=pos.symbol,
+                    quantity=pos.quantity,
+                    avg_buy_price=pos.avg_buy_price,
+                    current_price=current_price
+                )
+                positions.append(legacy_pos)
 
         portfolio = Portfolio(
             cash=game.current_cash,
-            positions=positions
+            positions=positions,
+            realized_pnl=game.realized_pnl if hasattr(game, 'realized_pnl') else 0.0
         )
 
         game_state = GameState(

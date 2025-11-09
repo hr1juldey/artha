@@ -51,16 +51,20 @@ def test_trade_buy_existing_position():
     # Start with existing position
     existing_pos = Position(symbol="RELIANCE", quantity=5, avg_buy_price=2400.0, current_price=2400.0)
     portfolio = Portfolio(cash=100000, positions=[existing_pos])
-    
+
     # Buy 10 more shares at different price
     result = TradeExecutor.execute_buy(portfolio, "RELIANCE", 10, 2500.0)
-    
+
     assert result.success is True
     assert len(portfolio.positions) == 1  # Still only one position
     assert portfolio.positions[0].quantity == 15  # 5 + 10
-    # Check that average buy price is correct: (5*2400 + 10*2500) / 15
-    expected_avg = (5 * 2400 + 10 * 2500) / 15
-    assert portfolio.positions[0].avg_buy_price == expected_avg
+    # Check that average buy price is correct: (5*2400 + 0 + 10*2500 + commission) / 15
+    # Commission on buy: 10*2500*0.0003 = 7.5
+    # Total cost basis: 12,000 + 25,000 + 7.5 = 37,007.5
+    # Avg: 37,007.5 / 15 = 2467.17
+    commission = result.commission
+    expected_avg = (5 * 2400 + 10 * 2500 + commission) / 15
+    assert abs(portfolio.positions[0].avg_buy_price - expected_avg) < 0.01
 
 
 def test_trade_sell_success():
