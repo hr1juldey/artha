@@ -1,13 +1,13 @@
 # Artha Configuration
 
 game:
-  initial_capital: 1000000
-  default_days: 300
+  initial_capital: 2000000
+  default_days: 6000
   commission_rate: 0.0003
 
 data:
   cache_enabled: true
-  cache_duration_hours: 24
+  cache_duration_hours: 2
   default_stocks:
     - RELIANCE
     - TCS
@@ -18,7 +18,7 @@ data:
 ai:
   enabled: true
   model: "qwen3:8b"
-  timeout_seconds: 30
+  timeout_seconds: 60
   fallback_on_error: true
 
 display:
