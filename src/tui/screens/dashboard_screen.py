@@ -1,13 +1,13 @@
 """Professional Trading Terminal Dashboard"""
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, DataTable
+from textual.widgets import Header, Footer, Static, DataTable, SelectionList
 from textual.containers import Horizontal, Vertical, ScrollableContainer
 from textual.reactive import reactive
 from src.models import GameState
 from src.tui.widgets.chart_widget import PortfolioChartWidget
 from src.tui.widgets.live_ticker import LiveTickerWidget
-from src.tui.widgets.watchlist import WatchlistWidget
+from src.tui.widgets.enhanced_watchlist import EnhancedWatchlistWidget
 from src.tui.screens.trade_modal import TradeModal
 from src.engine.trade_executor import TradeExecutor
 from src.utils.xirr_calculator import TransactionType
@@ -21,7 +21,7 @@ class DashboardScreen(Screen):
         ("t", "trade", "Trade"),
         ("space", "advance_day", "Next Day"),
         ("c", "coach", "AI Coach"),
-        ("w", "add_to_watchlist", "Add to Watchlist"),
+        ("w", "add_stock_to_watchlist", "Add to Watchlist"),
         ("plus", "chart_zoom_in", "Chart Zoom In"),
         ("minus", "chart_zoom_out", "Chart Zoom Out"),
         ("equal", "chart_reset_zoom", "Chart Reset"),
@@ -86,6 +86,43 @@ class DashboardScreen(Screen):
     #watchlist {
         height: 1fr;
         border: solid $accent;
+        padding: 0;
+    }
+
+    #watchlist-title {
+        height: auto;
+        background: $boost;
+        padding: 0 1;
+        text-align: center;
+        color: $accent;
+    }
+
+    #watchlist-content {
+        height: 1fr;
+        width: 100%;
+    }
+
+    #stock-selection-panel {
+        width: 30%;
+        height: 100%;
+        border-right: solid $primary;
+        padding: 1;
+    }
+
+    #selection-label {
+        height: auto;
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+
+    #stock-selector {
+        height: 1fr;
+        border: none;
+    }
+
+    #watchlist-chart {
+        width: 70%;
+        height: 100%;
         padding: 1;
     }
 
@@ -149,7 +186,7 @@ class DashboardScreen(Screen):
 
             # Right panel: Watchlist and AI Coach
             with Vertical(id="right-panel"):
-                yield WatchlistWidget(id="watchlist")
+                yield EnhancedWatchlistWidget(id="watchlist")
                 yield Static("💡 AI Coach Insights", id="coach-title")
                 with ScrollableContainer(id="coach-insights"):
                     yield Static("Waiting for trades...", id="coach-insights-text")
@@ -190,6 +227,13 @@ class DashboardScreen(Screen):
         chart_widget = self.query_one("#main-chart", PortfolioChartWidget)
         if chart_widget:
             chart_widget.update_portfolio_history(self.game_state.portfolio_history)
+
+        # Initialize watchlist with game state reference
+        try:
+            watchlist_widget = self.query_one("#watchlist", EnhancedWatchlistWidget)
+            watchlist_widget.game_state = self.game_state
+        except Exception:
+            pass
 
     def _populate_portfolio_grid(self) -> None:
         """Populate the portfolio DataTable with enhanced display"""
@@ -399,6 +443,17 @@ class DashboardScreen(Screen):
         self.app.coach.add_to_memory("portfolio_snapshot", portfolio_snapshot)
 
         self._refresh_display()
+
+        # Update watchlist prices (CRITICAL: update game state reference first)
+        try:
+            watchlist_widget = self.query_one("#watchlist", EnhancedWatchlistWidget)
+            watchlist_widget.game_state = self.game_state  # Update reference
+            watchlist_widget.update_prices()  # Refresh chart with new day
+        except Exception as e:
+            # Log error for debugging but don't crash
+            import traceback
+            traceback.print_exc()
+
         self.app.notify(f"Advanced to day {self.game_state.current_day}")
 
         # Auto-save
@@ -507,7 +562,87 @@ class DashboardScreen(Screen):
             chart_widget.reset_zoom()
             self.app.notify("📊 Chart zoom reset to full view", severity="information", timeout=1)
 
-    def action_add_to_watchlist(self) -> None:
-        """Add to watchlist action"""
-        # Would be implemented based on user selection
-        self.app.notify("Watchlist functionality coming soon", timeout=3)
+    def action_add_stock_to_watchlist(self) -> None:
+        """Add a stock to the watchlist - opens stock selector"""
+        # Get available stocks
+        stocks = self.app.market_data.get_default_stocks()
+
+        # Create a simple prompt to add stock
+        from textual.widgets import OptionList
+        from textual.widgets.option_list import Option
+        from textual.screen import ModalScreen
+        from textual.containers import Vertical as VerticalContainer
+        from textual.widgets import Label, Button
+
+        class AddStockModal(ModalScreen):
+            """Modal for adding stock to watchlist"""
+
+            CSS = """
+            AddStockModal {
+                align: center middle;
+            }
+
+            #add_stock_dialog {
+                width: 50;
+                height: auto;
+                max-height: 30;
+                background: $surface;
+                border: thick $primary;
+                padding: 1 2;
+            }
+
+            #stock_option_list {
+                height: 15;
+                margin: 1 0;
+                border: solid $accent;
+            }
+            """
+
+            def __init__(self, stocks, watchlist_widget):
+                super().__init__()
+                self.stocks = stocks
+                self.watchlist_widget = watchlist_widget
+
+            def compose(self) -> ComposeResult:
+                with VerticalContainer(id="add_stock_dialog"):
+                    yield Label("Select stock to add to watchlist:", id="modal_title")
+                    option_list = OptionList(id="stock_option_list")
+                    for stock in self.stocks:
+                        option_list.add_option(Option(stock, id=stock))
+                    yield option_list
+                    yield Label("Press Enter to add, Esc to cancel", id="modal_hint")
+
+            def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+                """Add selected stock to watchlist"""
+                stock_symbol = event.option.id
+
+                # Add to watchlist by programmatically selecting it
+                try:
+                    selector = self.watchlist_widget.query_one("#stock-selector", SelectionList)
+
+                    # Find and toggle the selection
+                    for idx, option in enumerate(selector._options):
+                        if option.id == stock_symbol:
+                            # Check if already selected
+                            if stock_symbol not in self.watchlist_widget.selected_stocks:
+                                selector.select(idx)
+                                self.app.notify(f"✓ Added {stock_symbol} to watchlist", severity="information")
+                            else:
+                                self.app.notify(f"ℹ {stock_symbol} already in watchlist", severity="warning")
+                            break
+                except Exception as e:
+                    self.app.notify(f"Error adding stock: {e}", severity="error")
+
+                self.dismiss()
+
+            def on_key(self, event) -> None:
+                """Handle escape key"""
+                if event.key == "escape":
+                    self.dismiss()
+
+        # Show the modal
+        try:
+            watchlist_widget = self.query_one("#watchlist", EnhancedWatchlistWidget)
+            self.app.push_screen(AddStockModal(stocks, watchlist_widget))
+        except Exception as e:
+            self.app.notify(f"Failed to open stock selector: {e}", severity="error")
